@@ -1,0 +1,20 @@
+# Core Conversation Engine
+SpeechRecognition
+pyaudio # Microphone access for SpeechRecognition
+openai # For interacting with the LLM (The "Thinking" part)
+coqui-tts # The "TTS" library for speaking and voice cloning
+
+# Audio Handling
+pydub # For manipulating audio files (e.g., your MP3s)
+sounddevice # For playing the generated audio
+soundfile # Dependency for sounddevice
+
+# Screen Perception
+mss # For fast screen capture
+opencv-python # For image recognition (finding Valorant in the screen)
+numpy # Dependency for image processing
+pytesseract # For Optical Character Recognition (OCR)
+Pillow # Dependency for pytesseract
+
+# General
+python-dotenv # To manage API keys securely
