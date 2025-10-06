@@ -1,126 +1,129 @@
 import os
-import requests
+import sqlite3
 import zlib
 import json
+import time
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# --- V6: Pantry Configuration ---
-PANTRY_ID = os.getenv("PANTRY_ID")
-PANTRY_URL = f"https://getpantry.cloud/apiv1/pantry/{PANTRY_ID}"
+# --- V6: Local SQLite Database Configuration ---
+DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'kim_young_mi_memory.db')
+db_conn = None
 
-# We will use different "baskets" (endpoints) for different data types
-CONVERSATION_BASKET = "conversation_history"
-METADATA_BASKET = "metadata"
-LEARNED_BASKET = "learned_personality"
-
-def _pantry_put(basket_name, payload):
-    """Helper function to send data to a Pantry basket."""
-    if not PANTRY_ID: return False
+def initialize_memory():
+    """
+    Initializes the connection to the local SQLite database and creates tables if they don't exist.
+    """
+    global db_conn
     try:
-        url = f"{PANTRY_URL}/basket/{basket_name}"
-        headers = {'Content-Type': 'application/json'}
-        response = requests.put(url, data=json.dumps(payload), headers=headers)
-        response.raise_for_status()
+        # Ensure the 'data' directory exists
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        db_conn = sqlite3.connect(DB_PATH)
+        cursor = db_conn.cursor()
+
+        # Create tables
+        # A simple key-value store for metadata like timestamps and learned insights
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+        # A table for storing conversation history sessions
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp INTEGER,
+                compressed_history BLOB
+            )
+        ''')
+
+        db_conn.commit()
+        print("Local memory database initialized successfully.")
         return True
     except Exception as e:
-        print(f"Error saving to Pantry basket '{basket_name}': {e}")
+        print(f"Failed to initialize SQLite database: {e}")
         return False
 
-def _pantry_get(basket_name):
-    """Helper function to get data from a Pantry basket."""
-    if not PANTRY_ID: return None
-    try:
-        url = f"{PANTRY_URL}/basket/{basket_name}"
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
-            print(f"Pantry basket '{basket_name}' not found. This is normal on first run.")
-        else:
-            print(f"Error getting from Pantry basket '{basket_name}': {e}")
-        return None
-    except Exception as e:
-        print(f"Error getting from Pantry basket '{basket_name}': {e}")
-        return None
-
 def save_conversation(conversation_history):
-    """Compresses conversation history and saves it to Pantry."""
-    print("Saving conversation to the cloud...")
-    history_json = json.dumps(conversation_history)
-    compressed_history = zlib.compress(history_json.encode('utf-8')).hex() # hex for JSON compatibility
-    if _pantry_put(CONVERSATION_BASKET, {"history": compressed_history}):
+    """Compresses conversation history and saves it to the local SQLite database."""
+    if not db_conn: return
+    print("Saving conversation to local memory...")
+    try:
+        history_json = json.dumps(conversation_history)
+        compressed_history = zlib.compress(history_json.encode('utf-8'))
+
+        cursor = db_conn.cursor()
+        cursor.execute("INSERT INTO conversations (timestamp, compressed_history) VALUES (?, ?)",
+                       (int(time.time()), compressed_history))
+        db_conn.commit()
         print("Successfully saved compressed conversation.")
+    except Exception as e:
+        print(f"Error saving conversation to local memory: {e}")
 
 def retrieve_conversation():
-    """Retrieves and decompresses conversation history from Pantry."""
-    print("Retrieving conversation from the cloud...")
-    data = _pantry_get(CONVERSATION_BASKET)
-    if data and "history" in data:
-        compressed_history_hex = data["history"]
-        decompressed_json = zlib.decompress(bytes.fromhex(compressed_history_hex)).decode('utf-8')
-        print("Successfully retrieved and decompressed conversation.")
-        return json.loads(decompressed_json)
-    return []
+    """Retrieves and decompresses the most recent conversation from the local database."""
+    if not db_conn: return []
+    print("Retrieving conversation from local memory...")
+    try:
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT compressed_history FROM conversations ORDER BY timestamp DESC LIMIT 1")
+        row = cursor.fetchone()
 
-def save_last_seen_timestamp():
-    """Saves the current timestamp to Pantry."""
-    print("Saving last_seen timestamp to the cloud...")
-    timestamp = {"last_seen": int(time.time())}
-    if _pantry_put(METADATA_BASKET, timestamp):
-        print("Successfully saved timestamp.")
+        if row:
+            decompressed_json = zlib.decompress(row[0]).decode('utf-8')
+            print("Successfully retrieved and decompressed conversation.")
+            return json.loads(decompressed_json)
+        return []
+    except Exception as e:
+        print(f"Error retrieving conversation from local memory: {e}")
+        return []
 
-def retrieve_last_seen_timestamp():
-    """Retrieves the last_seen timestamp from Pantry."""
-    print("Retrieving last_seen timestamp from the cloud...")
-    data = _pantry_get(METADATA_BASKET)
-    if data and "last_seen" in data:
-        print("Successfully retrieved timestamp.")
-        return data["last_seen"]
-    return None
+def save_metadata(key, value):
+    """Saves a key-value pair to the metadata table."""
+    if not db_conn: return
+    try:
+        cursor = db_conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)", (key, value))
+        db_conn.commit()
+    except Exception as e:
+        print(f"Error saving metadata '{key}': {e}")
 
-def save_learned_personality(insights):
-    """Saves the learned personality insights to Pantry."""
-    print("Saving learned personality to the cloud...")
-    if _pantry_put(LEARNED_BASKET, {"insights": insights}):
-        print("Successfully saved learned personality.")
-
-def retrieve_learned_personality():
-    """Retrieves the learned personality insights from Pantry."""
-    print("Retrieving learned personality from the cloud...")
-    data = _pantry_get(LEARNED_BASKET)
-    if data and "insights" in data:
-        print("Successfully retrieved learned personality.")
-        return data["insights"]
-    return ""
+def retrieve_metadata(key):
+    """Retrieves a value from the metadata table by key."""
+    if not db_conn: return None
+    try:
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT value FROM metadata WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+    except Exception as e:
+        print(f"Error retrieving metadata '{key}': {e}")
+        return None
 
 if __name__ == '__main__':
-    import time
-    print("--- Testing memory_manager.py (Pantry Version) ---")
-    if not PANTRY_ID:
-        print("ERROR: PANTRY_ID not set in .env file. Cannot run test.")
-    else:
+    print("--- Testing memory_manager.py (SQLite Version) ---")
+    if initialize_memory():
         # Test conversation
         test_history = [{"role": "user", "content": f"Test message at {time.time()}"}]
         save_conversation(test_history)
         retrieved = retrieve_conversation()
-        print(f"Retrieved: {retrieved}")
+        print(f"Retrieved History: {retrieved}")
         assert test_history == retrieved
 
-        # Test timestamp
-        save_last_seen_timestamp()
-        retrieved_ts = retrieve_last_seen_timestamp()
+        # Test metadata
+        save_metadata("last_seen", int(time.time()))
+        retrieved_ts = retrieve_metadata("last_seen")
         print(f"Retrieved timestamp: {retrieved_ts}")
-        assert isinstance(retrieved_ts, int)
+        assert isinstance(int(retrieved_ts), int)
 
-        # Test personality
-        test_insights = "Learned that the user likes testing things."
-        save_learned_personality(test_insights)
-        retrieved_insights = retrieve_learned_personality()
+        test_insights = "Learned that the user likes SQLite."
+        save_metadata("learned_personality", test_insights)
+        retrieved_insights = retrieve_metadata("learned_personality")
         print(f"Retrieved insights: {retrieved_insights}")
         assert test_insights == retrieved_insights
 
-        print("\n--- All Pantry tests passed! ---")
+        print("\n--- All SQLite tests passed! ---")
+        db_conn.close()
