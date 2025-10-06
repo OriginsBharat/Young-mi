@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import ollama
 
 import src.web_search as web_search
-import src.memory_manager as memory_manager # V6 Memory
+import src.memory_manager as memory_manager
 
 # Load environment variables
 load_dotenv()
@@ -14,13 +14,15 @@ character_sheet_content = ""
 
 def load_character_sheet():
     """
-    Loads the base character sheet and any learned personality traits from the cloud,
-    combining them into a single personality profile.
+    V9: Loads the base character sheet, the summarized long-term memories, AND
+    all individually learned facts to create her full, current personality.
     """
     global character_sheet_content
     base_personality = ""
-    learned_personality = ""
+    summarized_memories = ""
+    learned_facts = ""
 
+    # Load the base character sheet from file
     try:
         with open("data/character_sheet.md", "r", encoding="utf-8") as f:
             base_personality = f.read()
@@ -29,12 +31,23 @@ def load_character_sheet():
         print("Error: data/character_sheet.md not found. Using fallback personality.")
         base_personality = "You are a helpful assistant."
 
-    # V6: Load learned personality from the cloud via memory_manager
-    learned_personality = memory_manager.retrieve_learned_personality()
-    if learned_personality:
-        print("Learned personality traits loaded from the cloud.")
+    # Load the summarized memories from her long-term storage
+    summarized_memories = memory_manager.retrieve_learned_personality()
+    if summarized_memories:
+        print("Summarized memories loaded from the cloud.")
 
-    character_sheet_content = f"{base_personality}\n\n--- Additional Memories and Learned Insights ---\n{learned_personality}"
+    # V9: Load all individual, autonomously learned facts
+    learned_facts = memory_manager.get_all_learned_facts()
+    if learned_facts:
+        print("Autonomously learned facts loaded from local memory.")
+
+    # Combine everything into the final, comprehensive personality profile
+    character_sheet_content = (
+        f"{base_personality}\n\n"
+        f"--- Consolidated Memories & Personality Insights ---\n{summarized_memories}\n\n"
+        f"--- Specific Learned Facts ---\n{learned_facts}"
+    )
+    print("Full personality profile compiled and loaded.")
 
 def needs_web_search(user_input):
     """
@@ -45,18 +58,11 @@ def needs_web_search(user_input):
             model=OLLAMA_MODEL,
             messages=[
                 {"role": "system", "content": "You are a classification model. Your only job is to determine if a user's query requires a real-time web search to answer. Respond with a single word: 'SEARCH' if it does, and 'CONVERSE' if it does not. Queries about current events, specific facts, or 'how-to' guides need a search. Personal questions or conversational remarks do not."},
-                {"role": "user", "content": f"Query: 'Who won the last VCT championship?'"},
-                {"role": "assistant", "content": "SEARCH"},
-                {"role": "user", "content": f"Query: 'What do you think of my new haircut?'"},
-                {"role": "assistant", "content": "CONVERSE"},
-                {"role": "user", "content": f"Query: 'How do you play Viper on the map Bind?'"},
-                {"role": "assistant", "content": "SEARCH"},
                 {"role": "user", "content": f"Query: '{user_input}'"}
             ],
             options={"num_predict": 5}
         )
         decision = completion['message']['content'].strip().upper()
-        print(f"Search decision for '{user_input}': {decision}")
         return "SEARCH" in decision
     except Exception as e:
         print(f"Error in needs_web_search check: {e}")
@@ -69,6 +75,15 @@ def get_ai_response(user_input, conversation_history):
     if not character_sheet_content:
         load_character_sheet()
 
+    if "what have you learned about" in user_input.lower():
+        # A special command to check her knowledge
+        topic = user_input.lower().replace("what have you learned about", "").strip()
+        all_facts = memory_manager.get_all_learned_facts()
+        if topic in all_facts.lower():
+             return f"I've learned this about {topic}:\n{all_facts}"
+        else:
+             return f"I haven't learned anything specific about {topic} yet, but I can look it up!"
+
     if needs_web_search(user_input):
         search_summary = web_search.search_and_summarize(user_input)
         user_input_with_context = f"I just looked this up for you and found this information: '{search_summary}'. Now, answer my original question: '{user_input}'"
@@ -80,26 +95,27 @@ def get_ai_response(user_input, conversation_history):
     messages.append({"role": "user", "content": user_input_with_context})
 
     try:
-        print(f"Sending request to local model '{OLLAMA_MODEL}'...")
         completion = ollama.chat(
             model=OLLAMA_MODEL,
             messages=messages
         )
         response_text = completion['message']['content']
-        print("Received response from local model.")
         return response_text
     except Exception as e:
         print(f"An error occurred while calling the local Ollama model: {e}")
-        print("Please ensure the Ollama application is running and the specified model is downloaded.")
         return "I... I can't think right now. Something's wrong with my connection to myself."
 
 if __name__ == '__main__':
-    print("--- Testing thinking.py (with Local Ollama & Pantry Memory) ---")
+    print("--- Testing thinking.py (V9 Meaningful Learning) ---")
+    memory_manager.initialize_memory() # Need to init memory for testing
     load_character_sheet()
+    print("\nFinal Compiled Character Sheet:")
+    print(character_sheet_content)
+
     history = []
-    print("You can now talk to the AI. Type 'quit' to exit.")
+    print("\nYou can now talk to the AI. Try asking 'what have you learned about Clove'. Type 'quit' to exit.")
     while True:
-        prompt = input("You: ")
+        prompt = input("\nYou: ")
         if prompt.lower() == 'quit':
             break
 

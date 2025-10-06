@@ -126,6 +126,20 @@ def check_for_ability_use():
             if cv2.minMaxLoc(res)[1] > 0.85: return os.path.splitext(icon_file)[0]
     return None
 
+def get_all_text_on_screen():
+    """Captures the full screen and extracts all text for autonomous learning."""
+    with mss.mss() as sct:
+        sct_img = sct.grab(sct.monitors[1]) # Grab the whole primary monitor
+        img = np.array(sct_img)
+
+    # Preprocessing for general text recognition
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # A simple threshold might work okay for UI text
+    _, binary_image = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+
+    # Use a more general page segmentation mode (psm=3) to find all text
+    return read_text_from_image(binary_image, psm=3)
+
 if __name__ == '__main__':
     print("--- Testing game_awareness.py (V7 Commentator Vision) ---")
     while True:

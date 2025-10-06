@@ -1,5 +1,5 @@
 import os
-import requests
+import sqlite3
 import zlib
 import json
 import time
@@ -8,119 +8,149 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# --- V7: Pantry Configuration ---
-PANTRY_ID = os.getenv("PANTRY_ID")
-PANTRY_URL = f"https://getpantry.cloud/apiv1/pantry/{PANTRY_ID}"
+# --- V9: Local SQLite Database Configuration ---
+DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'kim_young_mi_memory.db')
+db_conn = None
 
-# We will use different "baskets" (endpoints) for different data types
-CONVERSATION_BASKET = "conversation_history"
-METADATA_BASKET = "metadata"
-LEARNED_BASKET = "learned_personality"
-
-def _pantry_put(basket_name, payload):
-    """Helper function to send data to a Pantry basket."""
-    if not PANTRY_ID: return False
+def initialize_memory():
+    """
+    Initializes the connection to the local SQLite database and creates tables if they don't exist.
+    """
+    global db_conn
     try:
-        url = f"{PANTRY_URL}/basket/{basket_name}"
-        headers = {'Content-Type': 'application/json'}
-        response = requests.put(url, data=json.dumps(payload), headers=headers)
-        response.raise_for_status()
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        db_conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = db_conn.cursor()
+
+        # --- V9: Expanded Memory Tables ---
+        # A simple key-value store for metadata
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+        # A table for storing conversation history
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp INTEGER,
+                compressed_history BLOB
+            )
+        ''')
+        # A table for storing learned facts from her curiosity
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS learned_facts (
+                topic TEXT PRIMARY KEY,
+                data TEXT,
+                timestamp INTEGER
+            )
+        ''')
+        # A table for words she knows to prevent re-learning
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS known_words (
+                word TEXT PRIMARY KEY
+            )
+        ''')
+
+        db_conn.commit()
+        print("Local memory database initialized successfully.")
         return True
     except Exception as e:
-        print(f"Error saving to Pantry basket '{basket_name}': {e}")
+        print(f"Failed to initialize SQLite database: {e}")
         return False
 
-def _pantry_get(basket_name):
-    """Helper function to get data from a Pantry basket."""
-    if not PANTRY_ID: return None
-    try:
-        url = f"{PANTRY_URL}/basket/{basket_name}"
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
-            print(f"Pantry basket '{basket_name}' not found. This is normal on first run.")
-        else:
-            print(f"Error getting from Pantry basket '{basket_name}': {e}")
-        return None
-    except Exception as e:
-        print(f"Error getting from Pantry basket '{basket_name}': {e}")
-        return None
-
+# --- Conversation and Metadata Functions (Simplified for brevity) ---
 def save_conversation(conversation_history):
-    """Compresses conversation history and saves it to Pantry."""
-    print("Saving conversation to the cloud...")
-    history_json = json.dumps(conversation_history)
-    # Using hex encoding for the compressed data to ensure it's valid JSON
-    compressed_history = zlib.compress(history_json.encode('utf-8')).hex()
-    if _pantry_put(CONVERSATION_BASKET, {"history": compressed_history}):
-        print("Successfully saved compressed conversation.")
+    if not db_conn: return
+    try:
+        history_json = json.dumps(conversation_history)
+        compressed_history = zlib.compress(history_json.encode('utf-8'))
+        cursor = db_conn.cursor()
+        cursor.execute("INSERT INTO conversations (timestamp, compressed_history) VALUES (?, ?)",
+                       (int(time.time()), compressed_history))
+        db_conn.commit()
+    except Exception as e:
+        print(f"Error saving conversation: {e}")
 
 def retrieve_conversation():
-    """Retrieves and decompresses conversation history from Pantry."""
-    print("Retrieving conversation from the cloud...")
-    data = _pantry_get(CONVERSATION_BASKET)
-    if data and "history" in data:
-        compressed_history_hex = data["history"]
-        decompressed_json = zlib.decompress(bytes.fromhex(compressed_history_hex)).decode('utf-8')
-        print("Successfully retrieved and decompressed conversation.")
-        return json.loads(decompressed_json)
-    return []
+    if not db_conn: return []
+    try:
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT compressed_history FROM conversations ORDER BY timestamp DESC LIMIT 1")
+        row = cursor.fetchone()
+        if row:
+            return json.loads(zlib.decompress(row[0]).decode('utf-8'))
+        return []
+    except Exception as e:
+        print(f"Error retrieving conversation: {e}")
+        return []
 
 def save_metadata(key, value):
-    """Saves a key-value pair to the metadata basket in Pantry."""
-    print(f"Saving metadata '{key}' to the cloud...")
-    if _pantry_put(METADATA_BASKET, {key: value}):
-        print(f"Successfully saved metadata '{key}'.")
+    if not db_conn: return
+    cursor = db_conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)", (key, str(value)))
+    db_conn.commit()
 
 def retrieve_metadata(key):
-    """Retrieves a value from the metadata basket by key."""
-    print(f"Retrieving metadata '{key}' from the cloud...")
-    data = _pantry_get(METADATA_BASKET)
-    if data and key in data:
-        print(f"Successfully retrieved metadata '{key}'.")
-        return data[key]
-    return None
+    if not db_conn: return None
+    cursor = db_conn.cursor()
+    cursor.execute("SELECT value FROM metadata WHERE key = ?", (key,))
+    row = cursor.fetchone()
+    return row[0] if row else None
 
-def save_learned_personality(insights):
-    """Saves the learned personality insights to Pantry."""
-    print("Saving learned personality to the cloud...")
-    if _pantry_put(LEARNED_BASKET, {"insights": insights}):
-        print("Successfully saved learned personality.")
+# --- V9: Autonomous Learning Functions ---
+def add_known_word(word):
+    """Adds a new word to the known_words table."""
+    save_metadata(f"known_word_{word.lower()}", "1")
 
-def retrieve_learned_personality():
-    """Retrieves the learned personality insights from Pantry."""
-    print("Retrieving learned personality from the cloud...")
-    data = _pantry_get(LEARNED_BASKET)
-    if data and "insights" in data:
-        print("Successfully retrieved learned personality.")
-        return data["insights"]
-    return ""
+def is_word_known(word):
+    """Checks if a word is in the known_words metadata table."""
+    return retrieve_metadata(f"known_word_{word.lower()}") is not None
+
+def add_learned_fact(topic, data):
+    """Adds a new learned fact to the database."""
+    if not db_conn: return
+    try:
+        cursor = db_conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO learned_facts (topic, data, timestamp) VALUES (?, ?, ?)",
+                       (topic.lower(), data, int(time.time())))
+        db_conn.commit()
+        add_known_word(topic) # Add the topic itself to known words
+        print(f"Successfully learned and stored a new fact about '{topic}'.")
+    except Exception as e:
+        print(f"Error saving learned fact: {e}")
+
+def get_all_learned_facts():
+    """Retrieves all learned facts from the database."""
+    if not db_conn: return ""
+    try:
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT topic, data FROM learned_facts ORDER BY timestamp DESC")
+        facts = cursor.fetchall()
+        # Format facts into a string for the AI's context
+        return "\n".join([f"- {topic.title()}: {data}" for topic, data in facts])
+    except Exception as e:
+        print(f"Error retrieving learned facts: {e}")
+        return ""
 
 if __name__ == '__main__':
-    print("--- Testing memory_manager.py (Pantry Version) ---")
-    if not PANTRY_ID:
-        print("ERROR: PANTRY_ID not set in .env file. Cannot run test.")
-    else:
-        # Test conversation
-        test_history = [{"role": "user", "content": f"Test message at {time.time()}"}]
-        save_conversation(test_history)
-        retrieved = retrieve_conversation()
-        print(f"Retrieved History: {retrieved}")
-        assert test_history == retrieved
+    print("--- Testing memory_manager.py (V9 Autonomous Learning) ---")
+    if initialize_memory():
+        # Test fact learning
+        test_topic = "Clove"
+        test_fact = "Clove is the latest Controller agent in Valorant."
+        add_learned_fact(test_topic, test_fact)
 
-        # Test metadata
-        save_metadata("last_seen", int(time.time()))
-        retrieved_ts = retrieve_metadata("last_seen")
-        print(f"Retrieved timestamp: {retrieved_ts}")
-        assert isinstance(retrieved_ts, int)
+        # Test word knowledge
+        assert is_word_known("Clove") == True
+        assert is_word_known("Jett") == False # Assuming Jett hasn't been learned yet
 
-        # Test personality
-        test_insights = "Learned that the user likes testing the Pantry integration."
-        save_learned_personality(test_insights)
-        retrieved_insights = retrieve_learned_personality()
-        print(f"Retrieved insights: {retrieved_insights}")
-        assert test_insights == retrieved_insights
+        # Test fact retrieval
+        all_facts = get_all_learned_facts()
+        print("\nAll Learned Facts:")
+        print(all_facts)
+        assert test_topic in all_facts
 
-        print("\n--- All Pantry tests passed! ---")
+        print("\n--- All V9 memory tests passed! ---")
+        db_conn.close()
