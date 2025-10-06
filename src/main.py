@@ -3,6 +3,7 @@ import threading
 from dotenv import load_dotenv
 import collections
 import queue
+from datetime import datetime
 
 # Import our custom modules
 import src.thinking as thinking
@@ -12,7 +13,7 @@ import src.game_awareness as game_awareness
 import src.game_data as game_data
 import src.chat_gui as chat_gui
 import src.memory_manager as memory_manager
-import src.personality_learner as personality_learner # V4 Evolution
+import src.personality_learner as personality_learner
 
 # Load environment variables
 load_dotenv()
@@ -24,6 +25,8 @@ current_game_state = "UNKNOWN"
 last_game_state = "UNKNOWN"
 last_user_interaction_time = 0
 USER_ID = "kim_young_mi_user"
+time_since_last_session = None # V5: For the natural greeting
+initial_greeting_given = False # V5: Flag to ensure greeting only happens once
 
 # Communication queues for the GUI
 gui_input_queue = queue.Queue()
@@ -61,13 +64,24 @@ def trigger_ai_reaction(event_type, event_details="", is_game_event=False):
 
 def game_state_manager():
     """The core logic loop. Manages state and triggers context-appropriate events."""
-    global app_running, current_game_state, last_game_state
+    global app_running, current_game_state, last_game_state, initial_greeting_given
     print("Game State Manager started.")
     match_data_loaded = False
 
     while app_running:
         current_game_state = game_awareness.get_current_screen()
 
+        # V5: Special check for the first greeting of the session
+        if not initial_greeting_given and time_since_last_session and (current_game_state == "HOME" or current_game_state == "AGENT_SELECT"):
+            print("First time seeing game this session. Triggering time-aware greeting.")
+            details = (f"It has been {time_since_last_session} since you last saw your boyfriend. "
+                       "He just launched Valorant for the first time this session. "
+                       "Greet him in your unique, loving, and teasing way based on this fact.")
+            trigger_ai_reaction("FIRST_GREETING_OF_SESSION", details, is_game_event=False)
+            initial_greeting_given = True
+            last_game_state = current_game_state # Prevent a double reaction
+
+        # --- State Change Logic ---
         if current_game_state != last_game_state:
             print(f"STATE CHANGE: Moving from '{last_game_state}' to '{current_game_state}'")
             details = f"You have just navigated to the {current_game_state} screen."
@@ -100,19 +114,15 @@ def user_conversation_handler():
     print("User Conversation Handler started.")
     while app_running:
         user_input = None
-        # Check for text input from the GUI queue first (it's non-blocking)
         try:
             user_input = gui_input_queue.get_nowait()
             if user_input: print(f"Text input received: {user_input}")
         except queue.Empty:
-            # If there's no text input, listen for voice input.
-            # This is a blocking call, so the thread will pause here.
             user_input = listening.listen_for_command()
             if user_input: print(f"Voice input received: {user_input}")
 
         if user_input:
             last_user_interaction_time = time.time()
-            # Display the user's message in the GUI, regardless of input method
             gui_output_queue.put((f"You: {user_input}", 'user'))
 
             ai_response = thinking.get_ai_response(user_input, conversation_history)
@@ -121,59 +131,61 @@ def user_conversation_handler():
 
             conversation_history.append({"role": "user", "content": user_input})
             conversation_history.append({"role": "assistant", "content": ai_response})
-
-        # A small sleep to yield the thread and prevent high CPU usage if listening times out
         time.sleep(0.1)
 
 def personality_learning_handler():
     """A background thread that periodically triggers the personality learning process."""
     print("Personality Learning Handler started.")
     while app_running:
-        # Wait for 24 hours before running the learning process.
-        time.sleep(86400) # 24 * 60 * 60 seconds
-
+        time.sleep(86400) # 24 hours
         if app_running:
             print("\n--- Starting Daily Personality Evolution ---")
-            # First, save the current session's conversation so it's included in the learning
             print("Saving current session before learning...")
             memory_manager.compress_and_save_conversation(USER_ID, conversation_history)
-
-            # Now, run the digestion process
             personality_learner.digest_all_memories(USER_ID)
-
-            # Reload the character sheet to incorporate the new memories for the next conversation
             print("Reloading character sheet with new memories...")
             thinking.load_character_sheet()
             gui_output_queue.put(("[SYSTEM] I've just reflected on our recent conversations.", 'assistant'))
             print("--- Personality Evolution Complete ---\n")
 
 def main():
-    global app_running, conversation_history
-    print("Starting Kim Young-mi AI (V4 - Permanent & Evolving)...")
+    global app_running, conversation_history, time_since_last_session
+    print("Starting Kim Young-mi AI (V5 - The Invitation)...")
 
     # Initialization
     thinking.load_character_sheet()
     speaking.initialize_tts()
 
     if memory_manager.initialize_memory():
+        # V5: Get the time since last session for the natural greeting
+        last_seen = memory_manager.retrieve_last_seen_timestamp(USER_ID)
+        if last_seen:
+            time_now = datetime.now(last_seen.tzinfo)
+            time_passed = time_now - last_seen
+
+            # Make the time human-readable
+            seconds = time_passed.total_seconds()
+            if seconds < 120: # Less than 2 minutes
+                time_since_last_session = "just a moment"
+            elif seconds < 7200: # Less than 2 hours
+                time_since_last_session = f"{int(seconds / 60)} minutes"
+            elif seconds < 172800: # Less than 2 days
+                time_since_last_session = f"{int(seconds / 3600)} hours"
+            else:
+                time_since_last_session = f"{int(seconds / 86400)} days"
+
         conversation_history = memory_manager.retrieve_and_decompress_last_conversation(USER_ID)
         for message in conversation_history:
             role = message.get("role")
             content = message.get("content")
-            if role == "user":
-                gui_output_queue.put((f"You: {content}", 'user'))
-            elif role == "assistant":
-                 gui_output_queue.put((f"Kim Young-mi: {content}", 'assistant'))
-
-    print("\n--- Instructions ---")
-    print("Her personality will now automatically evolve every 24 hours based on your chats.")
-    print("--------------------\n")
+            if role == "user": gui_output_queue.put((f"You: {content}", 'user'))
+            elif role == "assistant": gui_output_queue.put((f"Kim Young-mi: {content}", 'assistant'))
 
     # Start all background threads
     chat_gui.start_gui_thread(gui_input_queue, gui_output_queue)
     state_thread = threading.Thread(target=game_state_manager, daemon=True)
     conv_thread = threading.Thread(target=user_conversation_handler, daemon=True)
-    learning_thread = threading.Thread(target=personality_learning_handler, daemon=True)
+    learning_thread = threading.Thread(target=target=personality_learning_handler, daemon=True)
 
     state_thread.start()
     conv_thread.start()
@@ -185,9 +197,12 @@ def main():
         print("\nShutting down Kim Young-mi AI via Ctrl+C...")
     finally:
         app_running = False
-        print("Saving final conversation to the cloud...")
+        print("Saving final conversation and timestamp to the cloud...")
         memory_manager.compress_and_save_conversation(USER_ID, conversation_history)
+        memory_manager.save_last_seen_timestamp(USER_ID)
         print("Goodbye.")
 
 if __name__ == "__main__":
+    # The real entry point should now be the setup wizard.
+    # This main function is run by `run_silent.pyw`.
     main()

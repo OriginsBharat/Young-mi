@@ -89,6 +89,29 @@ def retrieve_and_decompress_last_conversation(user_id):
         print(f"Error retrieving conversation from cloud: {e}")
         return []
 
+def save_last_seen_timestamp(user_id):
+    """Saves the current timestamp to the user's profile in Firestore."""
+    if not db: return
+    try:
+        doc_ref = db.collection(f'users/{user_id}/profile').document('metadata')
+        doc_ref.set({'last_seen': firestore.SERVER_TIMESTAMP}, merge=True)
+        print("Saved last_seen timestamp to the cloud.")
+    except Exception as e:
+        print(f"Error saving last_seen timestamp: {e}")
+
+def retrieve_last_seen_timestamp(user_id):
+    """Retrieves the last_seen timestamp from the user's profile."""
+    if not db: return None
+    try:
+        doc_ref = db.collection(f'users/{user_id}/profile').document('metadata')
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict().get('last_seen')
+        return None
+    except Exception as e:
+        print(f"Error retrieving last_seen timestamp: {e}")
+        return None
+
 if __name__ == '__main__':
     # This is for testing the module directly
     print("--- Testing memory_manager.py ---")
