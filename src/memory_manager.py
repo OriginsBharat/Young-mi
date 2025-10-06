@@ -1,139 +1,126 @@
-import firebase_admin
-from firebase_admin import credentials, firestore
+import os
+import requests
 import zlib
 import json
-import os
-from datetime import datetime
+from dotenv import load_dotenv
 
-# This module will handle the connection to Firestore and data compression.
+# Load environment variables
+load_dotenv()
 
-db = None
+# --- V6: Pantry Configuration ---
+PANTRY_ID = os.getenv("PANTRY_ID")
+PANTRY_URL = f"https://getpantry.cloud/apiv1/pantry/{PANTRY_ID}"
 
-def initialize_memory():
-    """
-    Initializes the connection to the Firestore database.
-    It uses the service account key specified in the environment variable.
-    """
-    global db
+# We will use different "baskets" (endpoints) for different data types
+CONVERSATION_BASKET = "conversation_history"
+METADATA_BASKET = "metadata"
+LEARNED_BASKET = "learned_personality"
+
+def _pantry_put(basket_name, payload):
+    """Helper function to send data to a Pantry basket."""
+    if not PANTRY_ID: return False
     try:
-        # The GOOGLE_APPLICATION_CREDENTIALS env var is automatically used by the library.
-        if not os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
-            print("WARNING: GOOGLE_APPLICATION_CREDENTIALS not set. Cloud memory will be disabled.")
-            return False
-
-        cred = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(cred, {
-            'projectId': os.getenv('GCLOUD_PROJECT'), # Assumes project ID is also set
-        })
-        db = firestore.client()
-        print("Cloud memory initialized successfully.")
+        url = f"{PANTRY_URL}/basket/{basket_name}"
+        headers = {'Content-Type': 'application/json'}
+        response = requests.put(url, data=json.dumps(payload), headers=headers)
+        response.raise_for_status()
         return True
     except Exception as e:
-        print(f"Failed to initialize Firestore: {e}")
-        print("Please ensure your GOOGLE_APPLICATION_CREDENTIALS path is correct and you have authenticated.")
+        print(f"Error saving to Pantry basket '{basket_name}': {e}")
         return False
 
-def compress_and_save_conversation(user_id, conversation_history):
-    """
-    Compresses the conversation history and saves it to Firestore.
-    """
-    if not db:
-        print("Cloud memory not available. Cannot save conversation.")
-        return
-
+def _pantry_get(basket_name):
+    """Helper function to get data from a Pantry basket."""
+    if not PANTRY_ID: return None
     try:
-        # Convert the conversation history (a list of dicts) to a JSON string
-        history_json = json.dumps(conversation_history)
-        # Compress the JSON string using zlib
-        compressed_history = zlib.compress(history_json.encode('utf-8'))
-
-        # Create a document in Firestore. We'll use the current timestamp for the document ID.
-        doc_ref = db.collection(f'users/{user_id}/conversations').document(datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
-        doc_ref.set({
-            'timestamp': firestore.SERVER_TIMESTAMP,
-            'compressed_history': compressed_history
-        })
-        print(f"Successfully saved compressed conversation to the cloud.")
-
-    except Exception as e:
-        print(f"Error saving conversation to cloud: {e}")
-
-
-def retrieve_and_decompress_last_conversation(user_id):
-    """
-    Retrieves the most recent conversation from Firestore and decompresses it.
-    """
-    if not db:
-        print("Cloud memory not available. Cannot retrieve conversation.")
-        return []
-
-    try:
-        # Query the collection to get the most recent conversation document
-        docs = db.collection(f'users/{user_id}/conversations').order_by(
-            'timestamp', direction=firestore.Query.DESCENDING).limit(1).stream()
-
-        doc = next(docs, None)
-        if doc:
-            compressed_history = doc.to_dict()['compressed_history']
-            # Decompress the data
-            decompressed_json = zlib.decompress(compressed_history).decode('utf-8')
-            # Convert the JSON string back to a Python list
-            conversation_history = json.loads(decompressed_json)
-            print("Successfully retrieved and decompressed the last conversation from the cloud.")
-            return conversation_history
+        url = f"{PANTRY_URL}/basket/{basket_name}"
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 404:
+            print(f"Pantry basket '{basket_name}' not found. This is normal on first run.")
         else:
-            print("No previous conversations found in the cloud.")
-            return []
-
-    except Exception as e:
-        print(f"Error retrieving conversation from cloud: {e}")
-        return []
-
-def save_last_seen_timestamp(user_id):
-    """Saves the current timestamp to the user's profile in Firestore."""
-    if not db: return
-    try:
-        doc_ref = db.collection(f'users/{user_id}/profile').document('metadata')
-        doc_ref.set({'last_seen': firestore.SERVER_TIMESTAMP}, merge=True)
-        print("Saved last_seen timestamp to the cloud.")
-    except Exception as e:
-        print(f"Error saving last_seen timestamp: {e}")
-
-def retrieve_last_seen_timestamp(user_id):
-    """Retrieves the last_seen timestamp from the user's profile."""
-    if not db: return None
-    try:
-        doc_ref = db.collection(f'users/{user_id}/profile').document('metadata')
-        doc = doc_ref.get()
-        if doc.exists:
-            return doc.to_dict().get('last_seen')
+            print(f"Error getting from Pantry basket '{basket_name}': {e}")
         return None
     except Exception as e:
-        print(f"Error retrieving last_seen timestamp: {e}")
+        print(f"Error getting from Pantry basket '{basket_name}': {e}")
         return None
+
+def save_conversation(conversation_history):
+    """Compresses conversation history and saves it to Pantry."""
+    print("Saving conversation to the cloud...")
+    history_json = json.dumps(conversation_history)
+    compressed_history = zlib.compress(history_json.encode('utf-8')).hex() # hex for JSON compatibility
+    if _pantry_put(CONVERSATION_BASKET, {"history": compressed_history}):
+        print("Successfully saved compressed conversation.")
+
+def retrieve_conversation():
+    """Retrieves and decompresses conversation history from Pantry."""
+    print("Retrieving conversation from the cloud...")
+    data = _pantry_get(CONVERSATION_BASKET)
+    if data and "history" in data:
+        compressed_history_hex = data["history"]
+        decompressed_json = zlib.decompress(bytes.fromhex(compressed_history_hex)).decode('utf-8')
+        print("Successfully retrieved and decompressed conversation.")
+        return json.loads(decompressed_json)
+    return []
+
+def save_last_seen_timestamp():
+    """Saves the current timestamp to Pantry."""
+    print("Saving last_seen timestamp to the cloud...")
+    timestamp = {"last_seen": int(time.time())}
+    if _pantry_put(METADATA_BASKET, timestamp):
+        print("Successfully saved timestamp.")
+
+def retrieve_last_seen_timestamp():
+    """Retrieves the last_seen timestamp from Pantry."""
+    print("Retrieving last_seen timestamp from the cloud...")
+    data = _pantry_get(METADATA_BASKET)
+    if data and "last_seen" in data:
+        print("Successfully retrieved timestamp.")
+        return data["last_seen"]
+    return None
+
+def save_learned_personality(insights):
+    """Saves the learned personality insights to Pantry."""
+    print("Saving learned personality to the cloud...")
+    if _pantry_put(LEARNED_BASKET, {"insights": insights}):
+        print("Successfully saved learned personality.")
+
+def retrieve_learned_personality():
+    """Retrieves the learned personality insights from Pantry."""
+    print("Retrieving learned personality from the cloud...")
+    data = _pantry_get(LEARNED_BASKET)
+    if data and "insights" in data:
+        print("Successfully retrieved learned personality.")
+        return data["insights"]
+    return ""
 
 if __name__ == '__main__':
-    # This is for testing the module directly
-    print("--- Testing memory_manager.py ---")
-    # You need to have your GCLOUD_PROJECT env var set for this to work.
-    # And you need to be authenticated with `gcloud auth application-default login`
-    if initialize_memory():
-        test_user = "test_user_123"
-        test_history = [
-            {"role": "user", "content": "Hello, this is a test."},
-            {"role": "assistant", "content": "I am testing the memory system."}
-        ]
-
-        print("\n1. Saving a test conversation...")
-        compress_and_save_conversation(test_user, test_history)
-
-        print("\n2. Retrieving the last conversation...")
-        retrieved_history = retrieve_and_decompress_last_conversation(test_user)
-
-        print("\nRetrieved History:")
-        print(retrieved_history)
-
-        assert test_history == retrieved_history
-        print("\nTest successful: Saved and retrieved history matches.")
+    import time
+    print("--- Testing memory_manager.py (Pantry Version) ---")
+    if not PANTRY_ID:
+        print("ERROR: PANTRY_ID not set in .env file. Cannot run test.")
     else:
-        print("\nCould not run test because cloud memory failed to initialize.")
+        # Test conversation
+        test_history = [{"role": "user", "content": f"Test message at {time.time()}"}]
+        save_conversation(test_history)
+        retrieved = retrieve_conversation()
+        print(f"Retrieved: {retrieved}")
+        assert test_history == retrieved
+
+        # Test timestamp
+        save_last_seen_timestamp()
+        retrieved_ts = retrieve_last_seen_timestamp()
+        print(f"Retrieved timestamp: {retrieved_ts}")
+        assert isinstance(retrieved_ts, int)
+
+        # Test personality
+        test_insights = "Learned that the user likes testing things."
+        save_learned_personality(test_insights)
+        retrieved_insights = retrieve_learned_personality()
+        print(f"Retrieved insights: {retrieved_insights}")
+        assert test_insights == retrieved_insights
+
+        print("\n--- All Pantry tests passed! ---")

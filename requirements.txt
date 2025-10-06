@@ -1,7 +1,7 @@
 # Core Conversation Engine
 SpeechRecognition
 pyaudio # Microphone access for SpeechRecognition
-openai # For interacting with the LLM (The "Thinking" part)
+ollama # For interacting with a local AI model
 coqui-tts # The "TTS" library for speaking and voice cloning
 
 # Audio Handling
@@ -18,10 +18,7 @@ Pillow # Dependency for pytesseract
 
 # General
 python-dotenv # To manage API keys securely
-google-search-results # For using the SerpApi search engine
+duckduckgo-search # V6: For key-free web search
 requests # For making HTTP requests to get website content
 beautifulsoup4 # For parsing HTML content
 pynput # For listening to keyboard hotkeys (for Teaching Mode)
-
-# V4 Cloud Memory
-firebase-admin # For interacting with Google Cloud Firestore
