@@ -10,15 +10,35 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 character_sheet_content = ""
 
 def load_character_sheet():
-    """Loads the character sheet from the data directory."""
+    """
+    Loads the base character sheet and any learned personality traits,
+    combining them into a single personality profile.
+    """
     global character_sheet_content
+    base_personality = ""
+    learned_personality = ""
+
+    # Load the base character sheet
     try:
         with open("data/character_sheet.md", "r", encoding="utf-8") as f:
-            character_sheet_content = f.read()
-        print("Character sheet loaded successfully.")
+            base_personality = f.read()
+        print("Base character sheet loaded successfully.")
     except FileNotFoundError:
         print("Error: data/character_sheet.md not found. Using fallback personality.")
-        character_sheet_content = "You are a helpful assistant."
+        base_personality = "You are a helpful assistant."
+
+    # Load the learned personality traits if they exist
+    learned_personality_file = "data/learned_personality.md"
+    if os.path.exists(learned_personality_file):
+        try:
+            with open(learned_personality_file, "r", encoding="utf-8") as f:
+                learned_personality = f.read()
+            print("Learned personality traits loaded successfully.")
+        except Exception as e:
+            print(f"Error loading learned personality file: {e}")
+
+    # Combine them into the final character sheet
+    character_sheet_content = f"{base_personality}\n\n--- Additional Memories and Learned Insights ---\n{learned_personality}"
 
 def needs_web_search(user_input):
     """

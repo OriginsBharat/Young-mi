@@ -11,6 +11,8 @@ import src.listening as listening
 import src.game_awareness as game_awareness
 import src.game_data as game_data
 import src.chat_gui as chat_gui
+import src.memory_manager as memory_manager
+import src.personality_learner as personality_learner # V4 Evolution
 
 # Load environment variables
 load_dotenv()
@@ -21,6 +23,7 @@ conversation_history = []
 current_game_state = "UNKNOWN"
 last_game_state = "UNKNOWN"
 last_user_interaction_time = 0
+USER_ID = "kim_young_mi_user"
 
 # Communication queues for the GUI
 gui_input_queue = queue.Queue()
@@ -37,7 +40,6 @@ def trigger_ai_reaction(event_type, event_details="", is_game_event=False):
 
     current_time = time.time()
     if is_game_event and (current_time - last_user_interaction_time) < CONVERSATION_TIMEOUT:
-        print(f"Skipping game event '{event_type}' because of active conversation.")
         return
 
     for event, timestamp in recent_events:
@@ -48,7 +50,7 @@ def trigger_ai_reaction(event_type, event_details="", is_game_event=False):
 
     system_prompt = f"[Game Event: {event_type}. {event_details}]"
     print(f"--- New Game Event Detected: {system_prompt} ---")
-    gui_output_queue.put((f"[{event_type}]", 'assistant')) # Show event in GUI
+    gui_output_queue.put((f"[{event_type}]", 'assistant'))
 
     ai_response = thinking.get_ai_response(system_prompt, conversation_history)
     gui_output_queue.put((f"Kim Young-mi: {ai_response}", 'assistant'))
@@ -98,19 +100,19 @@ def user_conversation_handler():
     print("User Conversation Handler started.")
     while app_running:
         user_input = None
-        # Check for text input first
+        # Check for text input from the GUI queue first (it's non-blocking)
         try:
             user_input = gui_input_queue.get_nowait()
-            print(f"Text input received: {user_input}")
+            if user_input: print(f"Text input received: {user_input}")
         except queue.Empty:
-            # If no text input, check for voice input
-            # For now, we'll disable voice listening to focus on GUI testing.
-            # To re-enable, simply uncomment the line below.
-            # user_input = listening.listen_for_command()
-            pass
+            # If there's no text input, listen for voice input.
+            # This is a blocking call, so the thread will pause here.
+            user_input = listening.listen_for_command()
+            if user_input: print(f"Voice input received: {user_input}")
 
         if user_input:
             last_user_interaction_time = time.time()
+            # Display the user's message in the GUI, regardless of input method
             gui_output_queue.put((f"You: {user_input}", 'user'))
 
             ai_response = thinking.get_ai_response(user_input, conversation_history)
@@ -119,40 +121,72 @@ def user_conversation_handler():
 
             conversation_history.append({"role": "user", "content": user_input})
             conversation_history.append({"role": "assistant", "content": ai_response})
+
+        # A small sleep to yield the thread and prevent high CPU usage if listening times out
         time.sleep(0.1)
 
+def personality_learning_handler():
+    """A background thread that periodically triggers the personality learning process."""
+    print("Personality Learning Handler started.")
+    while app_running:
+        # Wait for 24 hours before running the learning process.
+        time.sleep(86400) # 24 * 60 * 60 seconds
+
+        if app_running:
+            print("\n--- Starting Daily Personality Evolution ---")
+            # First, save the current session's conversation so it's included in the learning
+            print("Saving current session before learning...")
+            memory_manager.compress_and_save_conversation(USER_ID, conversation_history)
+
+            # Now, run the digestion process
+            personality_learner.digest_all_memories(USER_ID)
+
+            # Reload the character sheet to incorporate the new memories for the next conversation
+            print("Reloading character sheet with new memories...")
+            thinking.load_character_sheet()
+            gui_output_queue.put(("[SYSTEM] I've just reflected on our recent conversations.", 'assistant'))
+            print("--- Personality Evolution Complete ---\n")
+
 def main():
-    global app_running
-    print("Starting Kim Young-mi AI (V3 - With GUI)...")
+    global app_running, conversation_history
+    print("Starting Kim Young-mi AI (V4 - Permanent & Evolving)...")
 
     # Initialization
     thinking.load_character_sheet()
     speaking.initialize_tts()
 
+    if memory_manager.initialize_memory():
+        conversation_history = memory_manager.retrieve_and_decompress_last_conversation(USER_ID)
+        for message in conversation_history:
+            role = message.get("role")
+            content = message.get("content")
+            if role == "user":
+                gui_output_queue.put((f"You: {content}", 'user'))
+            elif role == "assistant":
+                 gui_output_queue.put((f"Kim Young-mi: {content}", 'assistant'))
+
     print("\n--- Instructions ---")
-    print("A chat window will open. You can type to her there.")
-    print("The main application will continue to run in this terminal.")
+    print("Her personality will now automatically evolve every 24 hours based on your chats.")
     print("--------------------\n")
 
-    # Start the GUI in a separate thread
+    # Start all background threads
     chat_gui.start_gui_thread(gui_input_queue, gui_output_queue)
-
-    # Start background threads for game state and conversation
     state_thread = threading.Thread(target=game_state_manager, daemon=True)
     conv_thread = threading.Thread(target=user_conversation_handler, daemon=True)
+    learning_thread = threading.Thread(target=personality_learning_handler, daemon=True)
 
     state_thread.start()
     conv_thread.start()
+    learning_thread.start()
 
     try:
-        # Keep the main thread alive to wait for the GUI to close
-        # This is a bit of a hack; a more robust app would handle the GUI closing event.
-        while state_thread.is_alive() and conv_thread.is_alive():
-            time.sleep(1)
+        while True: time.sleep(1)
     except KeyboardInterrupt:
         print("\nShutting down Kim Young-mi AI via Ctrl+C...")
     finally:
         app_running = False
+        print("Saving final conversation to the cloud...")
+        memory_manager.compress_and_save_conversation(USER_ID, conversation_history)
         print("Goodbye.")
 
 if __name__ == "__main__":

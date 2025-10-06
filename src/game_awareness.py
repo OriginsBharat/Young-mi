@@ -15,8 +15,8 @@ KILL_FEED_ROI = (1500, 200, 400, 200)  # Top-right area for the kill feed
 ROUND_END_ROI = (760, 200, 400, 200)   # Center of the screen for VICTORY/DEFEAT
 AGENT_SELECT_ROI = (860, 800, 200, 100) # Bottom-center of the screen for the "LOCK IN" button
 
-# The username of the player. IMPORTANT: This MUST be set to your exact Valorant username.
-PLAYER_USERNAME = "YourValorantName"
+# The username of the player is now loaded from the environment variables.
+PLAYER_USERNAME = os.getenv("PLAYER_USERNAME", "YourValorantName")
 
 def capture_screen_area(roi):
     """Captures a specific region of the primary monitor."""

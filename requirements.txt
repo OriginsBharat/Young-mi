@@ -22,3 +22,6 @@ google-search-results # For using the SerpApi search engine
 requests # For making HTTP requests to get website content
 beautifulsoup4 # For parsing HTML content
 pynput # For listening to keyboard hotkeys (for Teaching Mode)
+
+# V4 Cloud Memory
+firebase-admin # For interacting with Google Cloud Firestore
