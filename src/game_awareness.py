@@ -3,19 +3,19 @@ import numpy as np
 import mss
 import pytesseract
 import os
-import time
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables to get the player's username
 load_dotenv()
 
-# --- V7: New ROIs for Commentator Brain ---
+# --- Configuration ---
+# ROIs (Regions of Interest) for different UI elements.
 NAV_BAR_ROI = (400, 0, 1120, 80)
 KILL_FEED_ROI = (1500, 200, 400, 200)
 ROUND_END_ROI = (760, 200, 400, 200)
 AGENT_SELECT_ROI = (860, 800, 200, 100)
-SCORE_ROI = (900, 10, 120, 40) # Top-center of the screen for the score (e.g., "5 - 3")
-PLAYERS_ALIVE_ROI = (850, 80, 220, 40) # Top-center, just below the timer, for player counts (e.g., "4 | 5")
+SCORE_ROI = (900, 10, 120, 40)
+PLAYERS_ALIVE_ROI = (850, 80, 220, 40)
 
 PLAYER_USERNAME = os.getenv("PLAYER_USERNAME", "YourValorantName")
 ABILITY_ICON_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'ability_icons')
@@ -42,16 +42,15 @@ def read_text_from_image(image, psm=7, is_numeric=False):
     try:
         config = f'--oem 3 --psm {psm}'
         if is_numeric:
-            config += ' -c tessedit_char_whitelist=0123456789-' # Whitelist for score/player count
+            config += ' -c tessedit_char_whitelist=0123456789-'
         text = pytesseract.image_to_string(image, config=config)
         return text.strip().upper()
     except Exception as e:
-        print(f"An error occurred during OCR: {e}")
+        print(f"[ERROR] An error occurred during OCR: {e}")
         return ""
 
 def get_current_game_context():
-    """V7: Reads multiple parts of the HUD to get a full tactical overview."""
-    # This function will eventually combine score and player count
+    """Reads multiple parts of the HUD to get a full tactical overview."""
     score_img = capture_screen_area(SCORE_ROI)
     players_img = capture_screen_area(PLAYERS_ALIVE_ROI)
 
@@ -61,9 +60,8 @@ def get_current_game_context():
     score_text = read_text_from_image(score_processed, is_numeric=True)
     players_text = read_text_from_image(players_processed, is_numeric=True)
 
-    # Clean up the OCR results
     score = score_text.replace(" ", "").replace("\n", "")
-    players_alive = players_text.replace(" ", "").replace("\n", "").replace("|", "v") # e.g., "4v5"
+    players_alive = players_text.replace(" ", "").replace("\n", "").replace("|", "v")
 
     return {"score": score, "players_alive": players_alive}
 
@@ -111,7 +109,7 @@ def check_round_end():
     return None
 
 def detect_agents_in_match():
-    print("Placeholder: Detecting agents in match...")
+    print("[INFO] Placeholder: Detecting agents in match...")
     return ["jett", "sova", "viper", "reyna", "killjoy", "cypher", "sage", "omen", "breach", "phoenix"]
 
 def check_for_ability_use():
@@ -129,19 +127,14 @@ def check_for_ability_use():
 def get_all_text_on_screen():
     """Captures the full screen and extracts all text for autonomous learning."""
     with mss.mss() as sct:
-        sct_img = sct.grab(sct.monitors[1]) # Grab the whole primary monitor
+        sct_img = sct.grab(sct.monitors[1])
         img = np.array(sct_img)
-
-    # Preprocessing for general text recognition
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # A simple threshold might work okay for UI text
     _, binary_image = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
-
-    # Use a more general page segmentation mode (psm=3) to find all text
     return read_text_from_image(binary_image, psm=3)
 
 if __name__ == '__main__':
-    print("--- Testing game_awareness.py (V7 Commentator Vision) ---")
+    print("--- Testing game_awareness.py (Definitive Version) ---")
     while True:
         try:
             current_screen = get_current_screen()
