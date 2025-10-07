@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import ollama
 
 import src.memory_manager as memory_manager
+import src.web_search as web_search
 
 # Load environment variables
 load_dotenv()
@@ -33,12 +34,12 @@ def load_character_sheet():
     # Load the summarized long-term memories from the cloud
     summarized_memories = memory_manager.retrieve_metadata("learned_personality")
     if summarized_memories:
-        print("[INFO] Summarized memories loaded from the cloud.")
+        print("[INFO] Summarized memories loaded.")
 
     # Load all individual, autonomously learned facts
     learned_facts = memory_manager.get_all_learned_facts()
     if learned_facts:
-        print("[INFO] Autonomously learned facts loaded from the cloud.")
+        print("[INFO] Autonomously learned facts loaded.")
 
     # Combine everything into the final, comprehensive personality profile
     character_sheet_content = (
@@ -56,8 +57,28 @@ def get_ai_response(user_input, conversation_history):
         # This should only happen once at the very start
         load_character_sheet()
 
+    # First, check if the user is asking about her knowledge base
+    if user_input.lower().startswith("what have you learned about"):
+        topic = user_input.lower().replace("what have you learned about", "").strip("? .")
+        all_facts = memory_manager.get_all_learned_facts()
+        # This is a simple string search, could be improved with more advanced NLP
+        if topic in all_facts.lower():
+             return f"I've learned this about {topic}:\n{all_facts}"
+        else:
+             # If she doesn't know, she can offer to find out
+             return f"I haven't learned anything specific about {topic} yet, but I can look it up for you if you'd like!"
+
+    # Second, check if the query requires a web search
+    search_check_prompt = f"Is the following query a request for real-time, external information (like news, specific facts, or how-to guides)? Answer with a single word: YES or NO.\n\nQuery: '{user_input}'"
+    search_check = ollama.chat(model=OLLAMA_MODEL, messages=[{'role': 'user', 'content': search_check_prompt}], options={"num_predict": 2})
+
+    if "YES" in search_check['message']['content'].upper():
+        search_summary = web_search.search_and_summarize(user_input)
+        # Re-frame the input to include the new context for the main personality
+        user_input = f"I just looked this up for you and found this: '{search_summary}'. Now, respond to my original question: '{user_input}'"
+
+    # Finally, generate the main response
     messages = [{"role": "system", "content": character_sheet_content}]
-    # Add a limited number of recent messages to keep context relevant
     messages.extend(conversation_history[-10:])
     messages.append({"role": "user", "content": user_input})
 
@@ -72,7 +93,6 @@ def get_ai_response(user_input, conversation_history):
         return response_text
     except Exception as e:
         print(f"[ERROR] An error occurred while calling the local Ollama model: {e}")
-        print("[ERROR] Please ensure the Ollama application is running and the specified model is downloaded.")
         return "I... I can't think right now. Something's wrong with my connection to myself."
 
 if __name__ == '__main__':
