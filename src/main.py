@@ -49,7 +49,7 @@ def screen_change_handler():
         if current_game_state != last_screen:
             print(f"STATE CHANGE: Moving to '{current_game_state}'")
 
-            # V9: Greet the user the first time the game is seen this session
+            # Greet the user the first time the game is seen this session
             if not initial_greeting_given and time_since_last_session and (current_game_state in ["HOME", "AGENT_SELECT"]):
                 initial_greeting_given = True
                 details = (f"It has been {time_since_last_session} since you last saw your boyfriend. "
@@ -75,8 +75,8 @@ def screen_change_handler():
         time.sleep(3)
 
 def inner_monologue_handler():
-    """V9: The true 'commentator brain'. Silently watches for all in-match events and generates thoughts."""
-    print("Inner Monologue (Commentator Brain) started.")
+    """Silently 'thinks' about the game state to generate tactical insights."""
+    last_event_context = ""
     event_cooldowns = collections.defaultdict(float)
     COOLDOWN_DURATION = 10
 
@@ -88,12 +88,11 @@ def inner_monologue_handler():
                 context_details = f"The score is {game_context['score']} and players alive are {game_context['players_alive']}."
                 event_type, event_prompt_details = None, ""
 
-                # --- Restore event detection ---
                 if now - event_cooldowns["kill"] > COOLDOWN_DURATION and game_awareness.check_for_kill():
                     event_type, event_prompt_details = "PLAYER_KILL", f"You just got a kill. {context_details}"
                 elif now - event_cooldowns["death"] > COOLDOWN_DURATION and game_awareness.check_for_death():
                     event_type, event_prompt_details = "PLAYER_DEATH", f"You just died. {context_details}"
-                elif now - event_cooldowns["round_end"] > (COOLDOWN_DURATION * 2): # Longer cooldown for round end
+                elif now - event_cooldowns["round_end"] > (COOLDOWN_DURATION * 2):
                     round_status = game_awareness.check_round_end()
                     if round_status: event_type, event_prompt_details = f"ROUND_{round_status}", context_details
 
@@ -130,7 +129,7 @@ def user_conversation_handler():
             speaking.speak(ai_response)
             conversation_history.extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": ai_response}])
         else:
-            if time.time() - last_user_interaction_time > 15: # Conversational lull
+            if time.time() - last_user_interaction_time > 15:
                 try:
                     thought_to_speak = thought_buffer.get_nowait()
                     if thought_to_speak:
@@ -145,13 +144,13 @@ def user_conversation_handler():
 def curiosity_handler():
     """Autonomously learns about new things seen on screen."""
     while app_running:
-        time.sleep(120) # Check for new things to learn every 2 minutes
+        time.sleep(120)
         try:
             all_text = game_awareness.get_all_text_on_screen()
             potential_topics = set(re.findall(r'\b[A-Z][a-z]{3,}\b', all_text))
             for topic in potential_topics:
                 if not memory_manager.is_word_known(topic):
-                    is_relevant_prompt = f"Is '{topic}' a known agent, map, ability, or general term in the game Valorant? Answer with a single word: YES or NO."
+                    is_relevant_prompt = f"Is '{topic}' a known agent, map, ability, or general term in Valorant? Answer YES or NO."
                     relevance_check = thinking.get_ai_response(is_relevant_prompt, [])
                     if "YES" in relevance_check.upper():
                         summary = web_search.search_and_summarize(f"What is {topic} in Valorant?")
@@ -164,7 +163,7 @@ def curiosity_handler():
 def personality_learning_handler():
     """Periodically triggers the personality learning process."""
     while app_running:
-        time.sleep(86400) # 24 hours
+        time.sleep(86400)
         if app_running:
             personality_learner.digest_all_memories()
             thinking.load_character_sheet()
@@ -183,7 +182,7 @@ def on_hotkey_release(key):
 def main():
     """Initializes and runs all application threads."""
     global app_running, conversation_history, time_since_last_session
-    print("Starting Kim Young-mi AI (V9 - The Autonomous Soul)...")
+    print("Starting Kim Young-mi AI (Definitive Version)...")
 
     memory_manager.initialize_memory()
     thinking.load_character_sheet()
@@ -192,11 +191,18 @@ def main():
     last_seen = memory_manager.retrieve_metadata("last_seen")
     if last_seen:
         time_passed = time.time() - int(last_seen)
-        # ... (Time calculation logic) ...
+        if time_passed < 120: time_since_last_session = "just a moment"
+        elif time_passed < 7200: time_since_last_session = f"{int(time_passed / 60)} minutes"
+        elif time_passed < 172800: time_since_last_session = f"{int(time_passed / 3600)} hours"
+        else: time_since_last_session = f"{int(time_passed / 86400)} days"
 
     conversation_history = memory_manager.retrieve_conversation()
-    for msg in conversation_history:
-        # ... (GUI history loading) ...
+    for message in conversation_history:
+        role, content = message.get("role"), message.get("content")
+        if role == "user":
+            gui_output_queue.put((f"You: {content}", 'user'))
+        elif role == "assistant":
+             gui_output_queue.put((f"Kim Young-mi: {content}", 'assistant'))
 
     threads = [
         threading.Thread(target=chat_gui.start_gui_thread, args=(gui_input_queue, gui_output_queue)),
@@ -206,7 +212,9 @@ def main():
         threading.Thread(target=personality_learning_handler),
         threading.Thread(target=curiosity_handler)
     ]
-    for t in threads: t.daemon = True; t.start()
+    for t in threads:
+        t.daemon = True
+        t.start()
 
     hotkey_listener = keyboard.Listener(on_press=on_hotkey_press, on_release=on_hotkey_release)
     hotkey_listener.start()
