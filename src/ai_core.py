@@ -37,10 +37,20 @@ class AICore:
             return [{"role": "system", "content": self.system_prompt}]
 
     def _is_confused(self, response):
-        """A simple check to see if the AI is confused by a term."""
-        # This is a basic implementation. It could be improved with more sophisticated checks.
-        confusion_phrases = ["i'm not sure what that is", "i don't know what", "what is a", "what is an"]
+        """A simple heuristic to check if the AI is confused by a term."""
+        confusion_phrases = ["i'm not sure what", "i don't know what", "what is a", "what is an", "what are"]
         return any(phrase in response.lower() for phrase in confusion_phrases)
+
+    def _extract_unknown_term(self, user_input):
+        """A simple heuristic to extract a potential unknown term from user input."""
+        # This can be improved, but for now, it's a decent starting point.
+        # It assumes the unknown term might be the last noun phrase.
+        words = user_input.split()
+        if len(words) > 2:
+            return " ".join(words[-2:]) # "what is a dragon lore" -> "dragon lore"
+        elif len(words) > 0:
+            return words[-1] # "what is gekko" -> "gekko"
+        return None
 
     def generate_response(self, user_input, game_context):
         """
@@ -49,12 +59,12 @@ class AICore:
         """
         # 1. Construct the prompt with full context
         is_alone = game_context.get("is_alone", True)
-        privacy_level = "We are alone, you can be yourself fully." if is_alone else "Be careful, others are in the party. Keep it SFW and focused on the game."
+        privacy_level = "We are alone, so you can be your full, unfiltered self." if is_alone else "Be careful, others are in the party. Keep it SFW and focused on tactical callouts or safe topics."
 
         context_prompt = (
-            f"--- Current Situation ---\n"
-            f"Privacy: {privacy_level}\n"
-            f"Game Screen: {game_context.get('current_screen', 'Unknown')}\n"
+            f"--- Your Current Situation ---\n"
+            f"Privacy Level: {privacy_level}\n"
+            f"Current Game Screen: {game_context.get('current_screen', 'Unknown')}\n"
             f"--- User's Message ---\n"
             f"{user_input}"
         )
@@ -69,19 +79,19 @@ class AICore:
             # 3. Check for confusion and attempt to learn
             if self._is_confused(ai_response):
                 print("[AI Core] AI seems confused. Attempting to learn...")
-                # Try to extract the term the AI is confused about (this is a simple heuristic)
-                term_to_learn = user_input.split(" ")[-1].replace("?", "")
-                learned_info = search_for_term(term_to_learn)
+                term_to_learn = self._extract_unknown_term(user_input)
 
-                if learned_info:
-                    # If learning was successful, add the new info to the conversation and try again
-                    self.conversation_history.append({"role": "assistant", "content": ai_response}) # Add the confused response
-                    learning_prompt = f"(System Note: You were confused about '{term_to_learn}'. Here is some information to help you: {learned_info}. Now, please respond to the user's original message again with this new knowledge.)"
-                    self.conversation_history.append({"role": "user", "content": learning_prompt})
+                if term_to_learn:
+                    learned_info = search_for_term(term_to_learn)
+                    if learned_info:
+                        # If learning was successful, add the new info to the conversation and try again
+                        self.conversation_history.append({"role": "assistant", "content": ai_response}) # Add the confused response
+                        learning_prompt = f"(System Note: You were confused about '{term_to_learn}'. Here is some information to help: {learned_info}. Now, please respond to the user's original message again with this new knowledge.)"
+                        self.conversation_history.append({"role": "user", "content": learning_prompt})
 
-                    print("[AI Core] Re-generating response with new knowledge.")
-                    new_response = self.client.chat(model=self.model_name, messages=self.conversation_history)
-                    ai_response = new_response['message']['content']
+                        print("[AI Core] Re-generating response with new knowledge.")
+                        new_response = self.client.chat(model=self.model_name, messages=self.conversation_history)
+                        ai_response = new_response['message']['content']
 
             # 4. Save and return the final response
             self.conversation_history.append({"role": "assistant", "content": ai_response})

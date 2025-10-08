@@ -85,9 +85,7 @@ venv.bak
 
 # Test artifacts
 test_screenshot.jpg
-test_template.png
-*.wav
-data/templates/
+*.png
 
 # IDE / Editor specific
 .vscode/

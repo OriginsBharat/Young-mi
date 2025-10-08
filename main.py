@@ -11,7 +11,7 @@ from src.ai_core import AICore
 from src.screen_perception import ScreenPerception
 from src.voice_io import VoiceIO
 
-# A shared state object for threads to communicate
+# A thread-safe object to store the current game state
 shared_game_state = {
     "is_alone": True,
     "current_screen": "Unknown",
@@ -24,36 +24,30 @@ def perception_loop(perception_service, valorant_username, stop_event):
     A separate thread that continuously watches the screen to understand the game state.
     """
     print("[Perception Thread] Started.")
-    # These would be tuned based on the game's UI layout
-    player_list_roi = (50, 200, 300, 400) # Placeholder for player list on the side
-
     while not stop_event.is_set():
-        screen = perception_service.capture_screen()
-        if screen is None:
-            time.sleep(2) # Wait longer if screen capture fails
-            continue
+        try:
+            screen = perception_service.capture_screen()
+            if screen is None:
+                # If screen capture fails, wait a bit before retrying
+                time.sleep(2)
+                continue
 
-        # 1. Determine the current screen using templates
-        detected_screen = perception_service.find_all_templates_on_screen(screen)
+            # 1. Determine the current screen using our automated perception logic
+            detected_screen = perception_service.determine_screen_context(screen)
 
-        # 2. Determine if the user is alone by reading the player list
-        player_list_text = perception_service.ocr_region(screen, player_list_roi)
+            # 2. Determine if the user is alone
+            is_alone = perception_service.is_user_alone(screen, valorant_username)
 
-        # A simple check: if the user's name is the only one we can clearly identify,
-        # or if the list is very short, assume they are alone.
-        is_alone = False
-        if player_list_text:
-            # Count occurrences of the user's name. A more robust solution would be needed
-            # for names that are substrings of others, but this is a solid start.
-            if player_list_text.count(valorant_username) <= 1 and len(player_list_text.split('\n')) <= 2:
-                 is_alone = True
+            # 3. Update the shared state in a thread-safe manner
+            with shared_game_state["lock"]:
+                shared_game_state["current_screen"] = detected_screen
+                shared_game_state["is_alone"] = is_alone
 
-        # Update shared state in a thread-safe way
-        with shared_game_state["lock"]:
-            shared_game_state["current_screen"] = detected_screen
-            shared_game_state["is_alone"] = is_alone
-
-        time.sleep(2) # Check screen state every 2 seconds
+            # Wait for a couple of seconds before checking again to conserve resources
+            time.sleep(2)
+        except Exception as e:
+            print(f"[Perception Thread ERROR] {e}")
+            time.sleep(5)
 
     print("[Perception Thread] Stopped.")
 
@@ -79,7 +73,7 @@ def main():
     voice.speak("Valorant detected! Hey babe, I'm here. Let's play.")
 
     stop_event = threading.Event()
-    perception_thread = threading.Thread(target=perception_loop, args=(perception, VALORANT_USERNAME, stop_event))
+    perception_thread = threading.Thread(target=perception_loop, args=(perception, VALORANT_USERNAME, stop_event), daemon=True)
     perception_thread.start()
 
     try:
@@ -89,21 +83,22 @@ def main():
                 user_input = voice.listen()
                 if user_input:
                     with shared_game_state["lock"]:
-                        # Copy the state to avoid holding the lock during the AI call
+                        # Make a copy of the state to avoid holding the lock during the AI call
                         current_context = shared_game_state.copy()
 
                     response = ai.generate_response(user_input, game_context=current_context)
                     voice.speak(response)
                 else:
-                    voice.speak("Sorry, I didn't catch that. Could you say it again?")
+                    voice.speak("Sorry, baby, I didn't quite catch that. Could you say it again?")
 
+                # Wait until the key is released to prevent immediate re-triggering
                 while keyboard.is_pressed(PUSH_TO_TALK_KEY):
                     time.sleep(0.1)
             time.sleep(0.1)
 
     except KeyboardInterrupt:
         print("\n--- Shutting down... ---")
-        voice.speak("Okay, I'm shutting down. See you next time, baby.")
+        voice.speak("Okay, I'm shutting down. See you next time, babe.")
     finally:
         stop_event.set()
         perception_thread.join()

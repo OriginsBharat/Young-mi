@@ -10,7 +10,7 @@ def search_for_term(term):
     print(f"[Learning Engine] Searching for new term: '{term}'...")
     try:
         with DDGS() as ddgs:
-            # We will take the first result as it's often the most relevant (e.g., a Wikipedia page).
+            # We will take the first result as it's often the most relevant.
             results = list(ddgs.text(term, max_results=1))
             if not results:
                 print(f"  > No results found for '{term}'.")
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     print("--- Testing Autonomous Learning Engine ---")
 
     # Test a common gaming term
-    term_to_learn = "Gekko Valorant"
+    term_to_learn = "Valorant new agent Clove"
     learned_info = search_for_term(term_to_learn)
 
     if learned_info:
@@ -41,7 +41,7 @@ if __name__ == '__main__':
         print(f"\nCould not learn about '{term_to_learn}'.")
 
     print("\n--- Testing a non-existent term ---")
-    term_to_learn_2 = "asdfqwerzxcv"
+    term_to_learn_2 = "asdfqwerzxcvnonexistentterm"
     learned_info_2 = search_for_term(term_to_learn_2)
     if not learned_info_2:
         print("\nCorrectly handled non-existent term.")

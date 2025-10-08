@@ -25,6 +25,8 @@ class VoiceIO:
 
         print(f"Using device: {self.device} for TTS.")
         try:
+            # Set the environment variable to auto-agree to the license
+            os.environ["COQUI_TOS_AGREED"] = "1"
             self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(self.device)
             self.voice_clone_path = voice_clone_path
             if self.voice_clone_path and not os.path.exists(self.voice_clone_path):
@@ -41,13 +43,14 @@ class VoiceIO:
 
         print(f"Kim Young-mi is speaking: {text}")
         try:
-            speaker_to_use = self.voice_clone_path if self.voice_clone_path else None
-            speaker_id_to_use = None if speaker_to_use else "Ana Florence"
+            # If a voice clone path is provided and exists, use it. Otherwise, use a default speaker.
+            speaker_wav = self.voice_clone_path if self.voice_clone_path else None
+            speaker = None if speaker_wav else "Ana Florence"
 
             wav = self.tts.tts(
                 text=text,
-                speaker_wav=speaker_to_use,
-                speaker=speaker_id_to_use,
+                speaker_wav=speaker_wav,
+                speaker=speaker,
                 language=language
             )
             sd.play(np.array(wav), samplerate=24000)
