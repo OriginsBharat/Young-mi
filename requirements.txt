@@ -1,12 +1,24 @@
-ollama
-Pillow
-pytesseract
-keyboard
-sounddevice
-opencv-python
-psutil
+# --- Core Conversation Engine ---
 SpeechRecognition
-coqui-tts
-python-dotenv
-requests
-mss
+pyaudio # Microphone access for SpeechRecognition
+ollama # For interacting with a local AI model
+coqui-tts # The correct, open-source engine for voice cloning and TTS
+
+# --- Audio Handling ---
+pydub # For manipulating audio files
+sounddevice # For playing the generated audio
+soundfile # Dependency for sounddevice
+
+# --- Screen Perception ---
+mss # For fast screen capture
+opencv-python # For image recognition
+numpy # Dependency for image processing
+pytesseract # For Optical Character Recognition (OCR)
+Pillow # Dependency for pytesseract
+
+# --- General Utilities ---
+python-dotenv # To manage the .env file
+requests # For making HTTP requests
+beautifulsoup4 # For parsing HTML content
+pynput # For listening to keyboard hotkeys
+duckduckgo-search # For key-free web search

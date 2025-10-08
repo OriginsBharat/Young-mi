@@ -5,15 +5,12 @@ import mss
 import numpy as np
 import cv2
 import pytesseract
-from PIL import Image
+import os
 
 class ScreenPerception:
     def __init__(self, valorant_process_name="VALORANT.exe"):
         self.valorant_process_name = valorant_process_name
         self.sct = mss.mss()
-        # Optional: If Tesseract is not in your PATH, you might need to set this.
-        # Example for Windows:
-        # pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
     def is_valorant_running(self):
         """Checks if the Valorant process is currently running."""
@@ -30,9 +27,7 @@ class ScreenPerception:
         try:
             monitor = self.sct.monitors[monitor_number]
             sct_img = self.sct.grab(monitor)
-            # Convert to a format that OpenCV can use (numpy array)
             img = np.array(sct_img)
-            # Convert from BGRA to BGR
             return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         except mss.exception.ScreenShotError as e:
             print(f"Error capturing screen: {e}")
@@ -49,33 +44,27 @@ class ScreenPerception:
         x, y, w, h = region
         crop_img = screen_image[y:y+h, x:x+w]
 
-        # Pre-process the image for better OCR results
+        # Pre-process for better OCR results
         gray_img = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
-        # Apply thresholding to get a binary image
-        _, thresh_img = cv2.threshold(gray_img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        thresh_img = cv2.threshold(gray_img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
 
         try:
             text = pytesseract.image_to_string(thresh_img, config='--psm 6')
             return text.strip()
-        except pytesseract.TesseractNotFoundError:
-            print("[ERROR] Tesseract not found. Please install it and ensure it's in your system's PATH.")
-            return None
         except Exception as e:
             print(f"An error occurred during OCR: {e}")
             return None
 
     def find_template_on_screen(self, screen_image, template_path, threshold=0.8):
-        """
-        Finds if a given template image is present on the screen.
-        Returns the coordinates of the match or None.
-        """
+        """Finds if a given template image is present on the screen."""
         if screen_image is None:
             return None
 
         try:
             template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
             if template is None:
-                raise FileNotFoundError(f"Template image not found at {template_path}")
+                # This is not an error, it just means the template doesn't exist yet.
+                return None
 
             w, h = template.shape[::-1]
         except Exception as e:
@@ -85,53 +74,22 @@ class ScreenPerception:
         screen_gray = cv2.cvtColor(screen_image, cv2.COLOR_BGR2GRAY)
 
         res = cv2.matchTemplate(screen_gray, template, cv2.TM_CCOEFF_NORMED)
-        loc = np.where(res >= threshold)
+        _, max_val, _, _ = cv2.minMaxLoc(res)
 
-        # Return the top-left coordinate of the first match
-        for pt in zip(*loc[::-1]):
-            return pt
-        return None
+        if max_val >= threshold:
+            return True
+        return False
 
-if __name__ == '__main__':
-    # This block is for testing the module directly
-    print("Testing Screen Perception module...")
-    perception = ScreenPerception()
+    def find_all_templates_on_screen(self, screen_image, templates_dir="data/templates"):
+        """Iterates through all templates and returns the name of the first one found."""
+        if not os.path.exists(templates_dir):
+            return "Unknown"
 
-    print("\nChecking if Valorant is running...")
-    if perception.is_valorant_running():
-        print("   Valorant process found!")
+        for template_file in os.listdir(templates_dir):
+            if template_file.endswith(".png"):
+                template_path = os.path.join(templates_dir, template_file)
+                if self.find_template_on_screen(screen_image, template_path):
+                    # Return the name of the screen, which is the filename without the extension.
+                    return os.path.splitext(template_file)[0]
 
-        print("\nAttempting to take a screenshot in 3 seconds...")
-        import time
-        time.sleep(3)
-        screenshot = perception.capture_screen()
-
-        if screenshot is not None:
-            cv2.imwrite("test_screenshot.jpg", screenshot)
-            print("   Screenshot saved as test_screenshot.jpg")
-
-            # Note: OCR and template matching are highly dependent on screen resolution
-            # and having the game open. These are placeholder examples.
-            print("\nTesting OCR on a sample region (top-left corner)...")
-            # Define a small region at the top-left to test OCR
-            test_roi = (0, 0, 300, 100)
-            ocr_text = perception.ocr_region(screenshot, test_roi)
-            print(f"   OCR Result: '{ocr_text}'")
-
-            print("\nTesting template matching (requires 'test_template.png')...")
-            # For this test to work, you'd need a file named 'test_template.png'
-            # that is a small snippet of the current screen.
-            if not os.path.exists('test_template.png'):
-                # Create a dummy template from the screenshot for testing purposes
-                dummy_template = screenshot[50:100, 50:100]
-                cv2.imwrite('test_template.png', dummy_template)
-                print("   Created a dummy 'test_template.png' for testing.")
-
-            match_location = perception.find_template_on_screen(screenshot, 'test_template.png')
-            if match_location:
-                print(f"   Template found at coordinates: {match_location}")
-            else:
-                print("   Template not found.")
-
-    else:
-        print("   Valorant is not running. Live tests will be skipped.")
+        return "Unknown"

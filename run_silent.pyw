@@ -1,22 +1,29 @@
-# run_silent.pyw
-# This script launches the main application in a detached process
-# without a console window, making it suitable for automatic startup.
-
-import subprocess
-import os
 import sys
+import os
+import traceback
 
-# Get the directory where this script is located
-script_dir = os.path.dirname(os.path.abspath(__file__))
-main_script_path = os.path.join(script_dir, "main.py")
+# This script is designed to run the main application silently in the background.
+# The .pyw extension tells Windows to run it without opening a console window.
 
-# Use DETACHED_PROCESS to run the script in the background without a console
-# This is a Windows-specific creation flag.
-DETACHED_PROCESS = 0x00000008
+# Get the absolute path of the directory containing this script.
+project_dir = os.path.dirname(os.path.abspath(__file__))
 
-# The command to execute: pythonw.exe is used to ensure no console pops up
-# for the main script either.
-command = [sys.executable.replace('python.exe', 'pythonw.exe'), main_script_path]
+# Add the project's 'src' directory to the Python path.
+# This allows the script to find and import the main module.
+src_dir = os.path.join(project_dir, 'src')
+sys.path.insert(0, src_dir)
 
-# Launch the main application
-subprocess.Popen(command, creationflags=DETACHED_PROCESS, close_fds=True)
+# Define a log file path for error handling.
+log_file = os.path.join(project_dir, 'error_log.txt')
+
+try:
+    # Import and run the main function from our core application.
+    from main import main
+    main()
+except Exception as e:
+    # If there's an error during execution, we must log it to a file
+    # because there is no console window to display it.
+    with open(log_file, 'a') as f:
+        f.write(f"--- An error occurred at {__file__} ---\n")
+        f.write(traceback.format_exc())
+        f.write("\n\n")

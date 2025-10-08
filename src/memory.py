@@ -24,8 +24,6 @@ class Memory:
         try:
             response = requests.get(url)
             if response.status_code == 200:
-                # Pantry returns a 200 with a message for empty/non-existent baskets,
-                # so we check if the response is actually JSON.
                 try:
                     return response.json()
                 except requests.exceptions.JSONDecodeError:
@@ -44,49 +42,8 @@ class Memory:
 
         url = f"{self.base_url}/basket/{self.basket_name}"
         try:
-            # Pantry will create the basket if it doesn't exist, or overwrite it if it does.
             response = requests.post(url, json=conversation_data, headers=self.headers)
-            response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+            response.raise_for_status()
             print("Memory successfully updated.")
         except requests.exceptions.RequestException as e:
             print(f"Error updating Pantry history: {e}")
-
-if __name__ == '__main__':
-    # This block is for testing the module directly
-    print("Testing Memory module with direct API calls...")
-
-    if not os.path.exists('.env'):
-        print("Creating a dummy .env file for testing.")
-        with open('.env', 'w') as f:
-            f.write('PANTRY_ID=YOUR_PANTRY_ID_HERE\n')
-
-    memory = Memory(basket_name="memory_test_basket")
-
-    if memory.pantry_id and "YOUR_PANTRY_ID" not in memory.pantry_id:
-        print(f"Pantry client configured for Pantry ID: {memory.pantry_id}")
-
-        dummy_history = {"messages": [{"role": "system", "content": "Test"}]}
-
-        print("\n1. Attempting to update history...")
-        memory.update_history(dummy_history)
-
-        print("\n2. Attempting to retrieve history...")
-        retrieved = memory.get_history()
-
-        if retrieved:
-            print("\n   Successfully retrieved history:")
-            print(f"   {retrieved}")
-        else:
-            print("\n   Failed to retrieve history.")
-
-        print("\n3. Cleaning up test basket...")
-        try:
-            delete_url = f"{memory.base_url}/basket/memory_test_basket"
-            requests.delete(delete_url)
-            print("   Test basket deleted.")
-        except requests.exceptions.RequestException as e:
-            print(f"   Could not delete test basket: {e}")
-    else:
-        print("\nCould not perform live test.")
-        print("Please create a real .env file with your Pantry ID and run this test again.")
-        print("Example: PANTRY_ID=a1b2c3d4-e5f6-7890-a1b2-c3d4e5f67890")
