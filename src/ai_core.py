@@ -43,13 +43,11 @@ class AICore:
 
     def _extract_unknown_term(self, user_input):
         """A simple heuristic to extract a potential unknown term from user input."""
-        # This can be improved, but for now, it's a decent starting point.
-        # It assumes the unknown term might be the last noun phrase.
         words = user_input.split()
         if len(words) > 2:
-            return " ".join(words[-2:]) # "what is a dragon lore" -> "dragon lore"
+            return " ".join(words[-2:])
         elif len(words) > 0:
-            return words[-1] # "what is gekko" -> "gekko"
+            return words[-1]
         return None
 
     def generate_response(self, user_input, game_context):
@@ -57,7 +55,6 @@ class AICore:
         Generates a response from the AI, handling confusion and context.
         `game_context` is a dictionary: {"is_alone": bool, "current_screen": str}
         """
-        # 1. Construct the prompt with full context
         is_alone = game_context.get("is_alone", True)
         privacy_level = "We are alone, so you can be your full, unfiltered self." if is_alone else "Be careful, others are in the party. Keep it SFW and focused on tactical callouts or safe topics."
 
@@ -72,11 +69,9 @@ class AICore:
         self.conversation_history.append({"role": "user", "content": context_prompt})
 
         try:
-            # 2. First attempt at generating a response
             response = self.client.chat(model=self.model_name, messages=self.conversation_history)
             ai_response = response['message']['content']
 
-            # 3. Check for confusion and attempt to learn
             if self._is_confused(ai_response):
                 print("[AI Core] AI seems confused. Attempting to learn...")
                 term_to_learn = self._extract_unknown_term(user_input)
@@ -84,8 +79,7 @@ class AICore:
                 if term_to_learn:
                     learned_info = search_for_term(term_to_learn)
                     if learned_info:
-                        # If learning was successful, add the new info to the conversation and try again
-                        self.conversation_history.append({"role": "assistant", "content": ai_response}) # Add the confused response
+                        self.conversation_history.append({"role": "assistant", "content": ai_response})
                         learning_prompt = f"(System Note: You were confused about '{term_to_learn}'. Here is some information to help: {learned_info}. Now, please respond to the user's original message again with this new knowledge.)"
                         self.conversation_history.append({"role": "user", "content": learning_prompt})
 
@@ -93,7 +87,6 @@ class AICore:
                         new_response = self.client.chat(model=self.model_name, messages=self.conversation_history)
                         ai_response = new_response['message']['content']
 
-            # 4. Save and return the final response
             self.conversation_history.append({"role": "assistant", "content": ai_response})
             self.memory.update_history({"messages": self.conversation_history})
             return ai_response

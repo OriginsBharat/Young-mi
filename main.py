@@ -11,46 +11,12 @@ from src.ai_core import AICore
 from src.screen_perception import ScreenPerception
 from src.voice_io import VoiceIO
 
-# A thread-safe object to store the current game state
+# A thread-safe object to store the current game state, passed between threads
 shared_game_state = {
     "is_alone": True,
     "current_screen": "Unknown",
     "lock": threading.Lock()
 }
-
-# --- Background Perception Thread ---
-def perception_loop(perception_service, valorant_username, stop_event):
-    """
-    A separate thread that continuously watches the screen to understand the game state.
-    """
-    print("[Perception Thread] Started.")
-    while not stop_event.is_set():
-        try:
-            screen = perception_service.capture_screen()
-            if screen is None:
-                # If screen capture fails, wait a bit before retrying
-                time.sleep(2)
-                continue
-
-            # 1. Determine the current screen using our automated perception logic
-            detected_screen = perception_service.determine_screen_context(screen)
-
-            # 2. Determine if the user is alone
-            is_alone = perception_service.is_user_alone(screen, valorant_username)
-
-            # 3. Update the shared state in a thread-safe manner
-            with shared_game_state["lock"]:
-                shared_game_state["current_screen"] = detected_screen
-                shared_game_state["is_alone"] = is_alone
-
-            # Wait for a couple of seconds before checking again to conserve resources
-            time.sleep(2)
-        except Exception as e:
-            print(f"[Perception Thread ERROR] {e}")
-            time.sleep(5)
-
-    print("[Perception Thread] Stopped.")
-
 
 def main():
     """
@@ -63,24 +29,32 @@ def main():
 
     print("--- Initializing Kim Young-mi ---")
     ai = AICore()
-    perception = ScreenPerception()
     voice = VoiceIO(voice_clone_path=VOICE_CLONE_PATH)
 
-    print("\nWaiting for Valorant to start...")
-    while not perception.is_valorant_running():
-        time.sleep(5)
-
-    voice.speak("Valorant detected! Hey babe, I'm here. Let's play.")
-
+    # --- Start the Perception Thread ---
+    # The new ScreenPerception class is a thread itself. We instantiate it and start it.
     stop_event = threading.Event()
-    perception_thread = threading.Thread(target=perception_loop, args=(perception, VALORANT_USERNAME, stop_event), daemon=True)
+    perception_thread = ScreenPerception(
+        shared_state=shared_game_state,
+        valorant_username=VALORANT_USERNAME,
+        stop_event=stop_event
+    )
     perception_thread.start()
 
+    voice.speak("I'm awake and watching. Let's play, babe.")
+
+    # --- Main Application Loop (Handles Voice Interaction) ---
     try:
         print(f"\n--- Kim Young-mi is active. Hold '{PUSH_TO_TALK_KEY}' to speak. ---")
         while True:
             if keyboard.is_pressed(PUSH_TO_TALK_KEY):
                 user_input = voice.listen()
+
+                # Wait for the key to be released *before* processing and responding
+                # This prevents the loop from re-triggering while the user is still holding the key.
+                while keyboard.is_pressed(PUSH_TO_TALK_KEY):
+                    time.sleep(0.05)
+
                 if user_input:
                     with shared_game_state["lock"]:
                         # Make a copy of the state to avoid holding the lock during the AI call
@@ -90,18 +64,15 @@ def main():
                     voice.speak(response)
                 else:
                     voice.speak("Sorry, baby, I didn't quite catch that. Could you say it again?")
-
-                # Wait until the key is released to prevent immediate re-triggering
-                while keyboard.is_pressed(PUSH_TO_TALK_KEY):
-                    time.sleep(0.1)
             time.sleep(0.1)
 
     except KeyboardInterrupt:
         print("\n--- Shutting down... ---")
         voice.speak("Okay, I'm shutting down. See you next time, babe.")
     finally:
+        # --- Cleanup ---
         stop_event.set()
-        perception_thread.join()
+        perception_thread.join() # Wait for the perception thread to finish cleanly
         print("--- Kim Young-mi is offline. ---")
 
 if __name__ == "__main__":

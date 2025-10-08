@@ -25,23 +25,3 @@ def search_for_term(term):
     except Exception as e:
         print(f"[Learning Engine] An error occurred during search: {e}")
         return None
-
-if __name__ == '__main__':
-    # This block is for testing the module directly
-    print("--- Testing Autonomous Learning Engine ---")
-
-    # Test a common gaming term
-    term_to_learn = "Valorant new agent Clove"
-    learned_info = search_for_term(term_to_learn)
-
-    if learned_info:
-        print("\n--- Summary for AI ---")
-        print(learned_info)
-    else:
-        print(f"\nCould not learn about '{term_to_learn}'.")
-
-    print("\n--- Testing a non-existent term ---")
-    term_to_learn_2 = "asdfqwerzxcvnonexistentterm"
-    learned_info_2 = search_for_term(term_to_learn_2)
-    if not learned_info_2:
-        print("\nCorrectly handled non-existent term.")

@@ -31,7 +31,6 @@ def install_dependencies():
             f.write("\n".join(requirements))
 
         print("Installing all required Python packages...")
-        # We install all at once, as the previous steps handled system-level dependencies.
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
 
         print("\n[OK] All Python packages installed successfully.")
@@ -58,12 +57,20 @@ def create_env_file():
     print("\nEnter the name of the Ollama model you want to use (e.g., llama3, mistral).")
     ollama_model = input("Ollama Model Name: ").strip()
 
+    print("\nFinally, choose your Push-to-Talk key. This is the key you will hold to speak to her.")
+    print("Use a simple key name like 'right alt', 'caps lock', 'f12', etc.")
+    push_to_talk_key = input("Push-to-Talk Key: ").strip().lower()
+
+    # Sanitize the path: strip quotes and convert backslashes to forward slashes
+    sanitized_voice_path = voice_clone_path.strip('"').replace('\\', '/')
+
+    # Write the configuration, ensuring paths and strings are quoted correctly for dotenv
     with open(".env", "w", encoding="utf-8") as f:
         f.write(f'PANTRY_ID="{pantry_id}"\n')
         f.write(f'VALORANT_USERNAME="{valorant_username}"\n')
-        f.write(f'VOICE_CLONE_PATH="{voice_clone_path}"\n')
+        f.write(f'VOICE_CLONE_PATH="{sanitized_voice_path}"\n')
         f.write(f'OLLAMA_MODEL="{ollama_model}"\n')
-        f.write('PUSH_TO_TALK_KEY="caps lock"\n')
+        f.write(f'PUSH_TO_TALK_KEY="{push_to_talk_key}"\n')
 
     print("\n[OK] Final configuration saved to .env file.")
 
