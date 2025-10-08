@@ -36,6 +36,11 @@ class AICore:
             print("No previous history found. Starting a new conversation.")
             return [{"role": "system", "content": self.system_prompt}]
 
+    def add_ai_thought_to_history(self, thought):
+        """Adds a thought the AI had to the conversation history."""
+        self.conversation_history.append({"role": "assistant", "content": thought})
+        self.memory.update_history({"messages": self.conversation_history})
+
     def _is_confused(self, response):
         """A simple heuristic to check if the AI is confused by a term."""
         confusion_phrases = ["i'm not sure what", "i don't know what", "what is a", "what is an", "what are"]
@@ -87,8 +92,7 @@ class AICore:
                         new_response = self.client.chat(model=self.model_name, messages=self.conversation_history)
                         ai_response = new_response['message']['content']
 
-            self.conversation_history.append({"role": "assistant", "content": ai_response})
-            self.memory.update_history({"messages": self.conversation_history})
+            self.add_ai_thought_to_history(ai_response)
             return ai_response
 
         except Exception as e:

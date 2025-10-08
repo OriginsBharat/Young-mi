@@ -12,15 +12,15 @@ import cv2
 import pytesseract
 
 class ScreenPerception(threading.Thread):
-    def __init__(self, shared_state, valorant_username, stop_event, valorant_process_name="VALORANT.exe"):
+    def __init__(self, shared_state, thought_queue, valorant_username, stop_event, valorant_process_name="VALORANT.exe"):
         super().__init__()
-        self.daemon = True  # Allows main thread to exit gracefully
+        self.daemon = True
         self.shared_state = shared_state
+        self.thought_queue = thought_queue
         self.valorant_username = valorant_username
         self.stop_event = stop_event
         self.valorant_process_name = valorant_process_name
 
-        # This will be initialized within the run() method to ensure it's on the correct thread
         self.sct = None
 
         self.screen_keywords = {
@@ -59,7 +59,7 @@ class ScreenPerception(threading.Thread):
     def is_user_alone(self, screen_image):
         """Checks if the user is likely alone by reading the player list."""
         if not self.valorant_username:
-            return True # Default to alone if no username is set
+            return True
 
         h, w, _ = screen_image.shape
         player_list_roi = (int(w*0.05), int(h*0.2), int(w*0.2), int(h*0.5))
@@ -69,47 +69,57 @@ class ScreenPerception(threading.Thread):
             return True
 
         lines = player_list_text.split('\n')
-        # A simple heuristic: count lines that contain the user's name (without the tag)
-        # or look like other player names. If it's just one, we assume they are alone.
         player_name_only = self.valorant_username.split('#')[0]
         player_count = sum(1 for line in lines if player_name_only in line or len(line) > 3)
 
         return player_count <= 1
 
+    def _generate_thought_for_screen(self, screen_name):
+        """Generates a simple, context-aware thought based on the screen."""
+        thoughts = {
+            "Lobby": "Back in the lobby, huh? Who are we queuing up with, babe?",
+            "Store": "Ooh, checking out the store? Let's see if there's anything pretty.",
+            "Agents": "Picking an agent? Get someone good, I'll be watching.",
+            "In-Match": "Looks like we're in a match. Focus up, you got this."
+        }
+        return thoughts.get(screen_name)
+
     def run(self):
         """The main loop for the perception thread."""
         print("[Perception Thread] Started.")
-        # Initialize the screen capture object *within the thread* to ensure thread-safety
         self.sct = mss.mss()
+        last_known_screen = "Unknown"
 
         while not self.stop_event.is_set():
             try:
-                # Check if Valorant is running
                 is_running = any(proc.info['name'] == self.valorant_process_name for proc in psutil.process_iter(['name']))
                 if not is_running:
                     time.sleep(5)
                     continue
 
-                # Capture the screen
                 monitor = self.sct.monitors[1]
                 sct_img = self.sct.grab(monitor)
                 screen = np.array(sct_img)
                 screen = cv2.cvtColor(screen, cv2.COLOR_BGRA2BGR)
 
-                # Perform analysis
                 detected_screen = self.determine_screen_context(screen)
                 is_alone = self.is_user_alone(screen)
 
-                # Update shared state
                 with self.shared_state["lock"]:
                     self.shared_state["current_screen"] = detected_screen
                     self.shared_state["is_alone"] = is_alone
 
-                time.sleep(2) # Check screen state every 2 seconds
+                if detected_screen != "Unknown" and detected_screen != last_known_screen:
+                    thought = self._generate_thought_for_screen(detected_screen)
+                    if thought:
+                        self.thought_queue.put(thought)
+
+                last_known_screen = detected_screen
+
+                time.sleep(2)
             except Exception as e:
                 print(f"[Perception Thread ERROR] An error occurred: {e}")
-                # Reset sct object on error to try and recover
-                self.sct = mss.mss()
+                self.sct = mss.mss() # Attempt to recover the screen capture object
                 time.sleep(5)
 
         print("[Perception Thread] Stopped.")

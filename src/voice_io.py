@@ -88,7 +88,6 @@ class VoiceIO(threading.Thread):
             speaker = None if speaker_wav else "Ana Florence"
             wav = self.tts.tts(text=text, speaker_wav=speaker_wav, speaker=speaker, language=language)
 
-            # Play the audio in a separate thread so the main loop doesn't block
             playback_thread = threading.Thread(target=self._play_audio, args=(wav,))
             playback_thread.daemon = True
             playback_thread.start()
