@@ -109,7 +109,6 @@ class ScreenPerception(threading.Thread):
             except Exception as e:
                 print(f"[Perception Thread ERROR] An error occurred: {e}")
                 # Reset sct object on error to try and recover
-                self.sct = None
                 self.sct = mss.mss()
                 time.sleep(5)
 
