@@ -45,8 +45,11 @@ def create_env_file():
     """Guides the user through creating the .env configuration file."""
     print("\n--- Step 3: Final Configuration ---")
 
-    print("Your Pantry ID is used for her long-term memory. Get a free one from https://getpantry.cloud/")
-    pantry_id = input("Enter your Pantry.io ID: ").strip()
+    print("Her long-term memory will be stored on JSONBin.io. Get a free API key from https://jsonbin.io/")
+    jsonbin_api_key = input("Enter your JSONBin.io API Key: ").strip()
+
+    print("\nGive her memory a name. This will be the name of the file in your JSONBin account.")
+    jsonbin_bin_name = input("Enter a Bin Name (e.g., kim_young_mi_history): ").strip()
 
     print("\nYour Valorant username (e.g., YourName#1234) is needed for her to know when you're alone.")
     valorant_username = input("Enter your Valorant Username: ").strip()
@@ -66,7 +69,8 @@ def create_env_file():
 
     # Write the configuration, ensuring paths and strings are quoted correctly for dotenv
     with open(".env", "w", encoding="utf-8") as f:
-        f.write(f'PANTRY_ID="{pantry_id}"\n')
+        f.write(f'JSONBIN_API_KEY="{jsonbin_api_key}"\n')
+        f.write(f'JSONBIN_BIN_NAME="{jsonbin_bin_name}"\n')
         f.write(f'VALORANT_USERNAME="{valorant_username}"\n')
         f.write(f'VOICE_CLONE_PATH="{sanitized_voice_path}"\n')
         f.write(f'OLLAMA_MODEL="{ollama_model}"\n')
