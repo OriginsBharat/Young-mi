@@ -12,11 +12,10 @@ import cv2
 import pytesseract
 
 class ScreenPerception(threading.Thread):
-    def __init__(self, shared_state, thought_queue, valorant_username, stop_event, valorant_process_name="VALORANT.exe"):
+    def __init__(self, shared_state, valorant_username, stop_event, valorant_process_name="VALORANT.exe"):
         super().__init__()
         self.daemon = True
         self.shared_state = shared_state
-        self.thought_queue = thought_queue
         self.valorant_username = valorant_username
         self.stop_event = stop_event
         self.valorant_process_name = valorant_process_name
@@ -74,21 +73,10 @@ class ScreenPerception(threading.Thread):
 
         return player_count <= 1
 
-    def _generate_thought_for_screen(self, screen_name):
-        """Generates a simple, context-aware thought based on the screen."""
-        thoughts = {
-            "Lobby": "Back in the lobby, huh? Who are we queuing up with, babe?",
-            "Store": "Ooh, checking out the store? Let's see if there's anything pretty.",
-            "Agents": "Picking an agent? Get someone good, I'll be watching.",
-            "In-Match": "Looks like we're in a match. Focus up, you got this."
-        }
-        return thoughts.get(screen_name)
-
     def run(self):
         """The main loop for the perception thread."""
         print("[Perception Thread] Started.")
         self.sct = mss.mss()
-        last_known_screen = "Unknown"
 
         while not self.stop_event.is_set():
             try:
@@ -108,13 +96,6 @@ class ScreenPerception(threading.Thread):
                 with self.shared_state["lock"]:
                     self.shared_state["current_screen"] = detected_screen
                     self.shared_state["is_alone"] = is_alone
-
-                if detected_screen != "Unknown" and detected_screen != last_known_screen:
-                    thought = self._generate_thought_for_screen(detected_screen)
-                    if thought:
-                        self.thought_queue.put(thought)
-
-                last_known_screen = detected_screen
 
                 time.sleep(2)
             except Exception as e:

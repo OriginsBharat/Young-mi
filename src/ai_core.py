@@ -41,6 +41,39 @@ class AICore:
         self.conversation_history.append({"role": "assistant", "content": thought})
         self.memory.update_history({"messages": self.conversation_history})
 
+    def generate_thought(self, game_context):
+        """
+        Generates a proactive, in-character thought based on the current game state.
+        This uses a separate, temporary message history to not pollute the main conversation.
+        """
+        is_alone = game_context.get("is_alone", True)
+        current_screen = game_context.get('current_screen', 'Unknown')
+        privacy_level_adjective = "playful and uninhibited" if is_alone else "focused and tactical"
+
+        # A special prompt designed to elicit a short, in-character observation.
+        thinking_prompt = (
+            f"You are watching your boyfriend play Valorant. He is currently on the '{current_screen}' screen. "
+            f"You are feeling {privacy_level_adjective}. "
+            f"Generate a single, brief, in-character thought or observation about this situation. "
+            f"Do not ask a question. Do not greet him. Just state a short thought. Be creative."
+        )
+
+        temp_messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": thinking_prompt}
+        ]
+
+        try:
+            response = self.client.chat(model=self.model_name, messages=temp_messages)
+            thought = response['message']['content']
+            # A simple filter to remove unwanted self-correction or affirmations from the model
+            if "Sure, here's a thought" in thought or "Okay, here's" in thought:
+                thought = thought.split(":")[-1].strip()
+            return thought
+        except Exception as e:
+            print(f"[ERROR] Error generating thought: {e}")
+            return None
+
     def _is_confused(self, response):
         """A simple heuristic to check if the AI is confused by a term."""
         confusion_phrases = ["i'm not sure what", "i don't know what", "what is a", "what is an", "what are"]

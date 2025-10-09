@@ -20,6 +20,28 @@ shared_game_state = {
     "lock": threading.Lock()
 }
 
+# --- Background "Inner Monologue" Thread ---
+def inner_monologue_loop(ai_core, thought_queue, stop_event):
+    """
+    A separate thread that periodically prompts the AI to "think" about the current
+    game state, generating proactive thoughts.
+    """
+    print("[Inner Monologue Thread] Started.")
+    while not stop_event.is_set():
+        time.sleep(20) # Think every 20 seconds
+
+        with shared_game_state["lock"]:
+            current_context = shared_game_state.copy()
+
+        # We don't want her talking to herself if the game isn't even running
+        if current_context["current_screen"] != "Unknown":
+            thought = ai_core.generate_thought(current_context)
+            if thought:
+                thought_queue.put(thought)
+
+    print("[Inner Monologue Thread] Stopped.")
+
+
 def main():
     """
     Main function to run the Kim Young-mi AI companion.
@@ -45,7 +67,6 @@ def main():
 
     perception_thread = ScreenPerception(
         shared_state=shared_game_state,
-        thought_queue=thought_queue,
         valorant_username=VALORANT_USERNAME,
         stop_event=stop_event
     )
@@ -54,12 +75,18 @@ def main():
     gui_thread = ChatWindow(gui_input_queue, gui_output_queue)
     gui_thread.start()
 
+    # Start the Inner Monologue thread
+    monologue_thread = threading.Thread(target=inner_monologue_loop, args=(ai, thought_queue, stop_event), daemon=True)
+    monologue_thread.start()
+
     voice.speak("I'm awake and watching. Let's play, babe.")
     gui_output_queue.put("I'm awake and watching. Let's play, babe.")
 
     # --- Main Application Loop (Proactive & Asynchronous) ---
     is_recording = False
     audio_buffer = []
+    last_interaction_time = time.time()
+    LULL_DURATION = 15 # Seconds before she might speak a thought
 
     try:
         print(f"\n--- Kim Young-mi is active. Hold '{PUSH_TO_TALK_KEY}' to speak, or type in the chat window. ---")
@@ -89,20 +116,24 @@ def main():
 
             # 3. Process user input if it exists
             if user_input:
+                last_interaction_time = time.time() # Reset lull timer on user input
                 with shared_game_state["lock"]:
                     current_context = shared_game_state.copy()
                 response = ai.generate_response(user_input, game_context=current_context)
                 voice.speak(response)
                 gui_output_queue.put(response)
+                last_interaction_time = time.time() # Also reset after she speaks
 
-            # 4. If there's no user input, check for a proactive thought
-            else:
+            # 4. If there's no user input, check for a conversational lull
+            elif time.time() - last_interaction_time > LULL_DURATION:
                 try:
+                    # Check for a new thought from the inner monologue
                     thought = thought_queue.get_nowait()
-                    print(f"[Proactive Thought] Speaking: {thought}")
+                    print(f"[Natural Interjection] Speaking thought: {thought}")
                     voice.speak(thought)
                     gui_output_queue.put(thought)
                     ai.add_ai_thought_to_history(thought)
+                    last_interaction_time = time.time() # Reset timer after she speaks
                 except queue.Empty:
                     pass # No thoughts to speak, continue silently
 
@@ -115,6 +146,7 @@ def main():
         stop_event.set()
         voice.stop()
         perception_thread.join()
+        monologue_thread.join()
         voice.join()
         print("--- Kim Young-mi is offline. ---")
 
